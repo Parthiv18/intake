@@ -116,6 +116,23 @@
       }
       #addFormContainer label { display: block; margin: 5px 0; }
       #addFormContainer input { margin-left: 10px; }
+      /* Bulk Actions Toolbar */
+      #bulkActions {
+        margin: 10px 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      /* Checkbox styling in cards */
+      .card-select {
+        transform: scale(1.2);
+      }
+      .card-checkbox {
+        position: absolute;
+        top: 5px;
+        left: 5px;
+        z-index: 10;
+      }
     </style>
   </head>
   <body>
@@ -355,6 +372,28 @@
           }
         }
         
+        // ----- Bulk Operations Functions -----
+        function bulkDelete() {
+          const selectedCheckboxes = document.querySelectorAll('.jrm-card input.card-select:checked');
+          selectedCheckboxes.forEach(checkbox => {
+            const card = checkbox.closest('.jrm-card');
+            const intakeId = card.getAttribute('data-intake-id');
+            deleteCardFromExcel(intakeId);
+            card.remove();
+          });
+          filterCards();
+        }
+        
+        function bulkMove() {
+          const newStatus = document.getElementById('bulkMoveStatus').value;
+          const selectedCheckboxes = document.querySelectorAll('.jrm-card input.card-select:checked');
+          selectedCheckboxes.forEach(checkbox => {
+            const card = checkbox.closest('.jrm-card');
+            moveCard(card, newStatus);
+          });
+          filterCards();
+        }
+        
         // ----- Custom Context Menu Functionality -----
         function hideContextMenu() {
           document.getElementById('contextMenu').style.display = 'none';
@@ -564,7 +603,18 @@
                 <button type="button" id="cancelAdd">Cancel</button>
               </form>
             </div>`;
-          // Process each row to create JRM cards
+          // Bulk Actions Toolbar for moving or deleting selected cards
+          html += `<div id="bulkActions">
+              <select id="bulkMoveStatus">
+                <option value="jrm">JRM</option>
+                <option value="estimates">Estimates</option>
+                <option value="approved">Approved</option>
+                <option value="ofs">Out of Scope</option>
+              </select>
+              <button id="bulkMoveBtn">Bulk Move</button>
+              <button id="bulkDeleteBtn">Bulk Delete</button>
+            </div>`;
+          // Process each row to create JRM cards with a checkbox for bulk selection
           let cards = { jrm: [], estimates: [], approved: [], ofs: [] };
           state.jrmRows.forEach((row, idx) => {
             let [id = "", name = "", comments = "", tags = "", rawStatus = "", attach = "", date] = row,
@@ -577,7 +627,11 @@
             state.jrmDateMapping[normId] = isoDate;
             const viewLink = status === "approved" ?
               `<div style="position:absolute;bottom:10px;right:10px;"><a href="javascript:void(0)" data-intake-id="${normId}" class="view-link">View</a></div>` : "";
+            // Insert a checkbox in each card (positioned at top-left)
             const card = `<div id="card-ENT-${normId}" class="jrm-card" data-intake-id="${id}" data-intake-name="${name}" data-intake-tags="${tags}" data-intake-date="${isoDate}" data-status="${status}" data-closed="${closed}">
+                <div class="card-checkbox">
+                  <input type="checkbox" class="card-select">
+                </div>
                 <h3><a href="https://jira.cibcatl.com/browse/ENT-${normId}" target="_blank">ENT-${normId} - ${name}</a></h3>
                 <p><strong>Date:</strong> ${dispDate}</p>
                 <p><strong>Comments:</strong> ${comments}</p>
@@ -603,6 +657,10 @@
             </div>
           </div>`;
           $("jrm-content").innerHTML = html;
+          
+          // Attach Bulk Actions event listeners
+          document.getElementById("bulkMoveBtn").addEventListener("click", bulkMove);
+          document.getElementById("bulkDeleteBtn").addEventListener("click", bulkDelete);
           
           // Add event listeners for filtering
           on("#searchInput, #startDate, #endDate, #statusDropdown", "input", filterCards);
@@ -664,6 +722,9 @@
               // Create new card HTML and prepend it to the JRM column (after header)
               const dispDate = new Date(newIntake.intakeDate).toLocaleDateString("en-US");
               const newCardHtml = `<div id="card-ENT-${normId}" class="jrm-card" data-intake-id="${newIntake.intakeId}" data-intake-name="${newIntake.intakeName}" data-intake-tags="${newIntake.intakeTags}" data-intake-date="${newIntake.intakeDate}" data-status="jrm" data-closed="false">
+                <div class="card-checkbox">
+                  <input type="checkbox" class="card-select">
+                </div>
                 <h3><a href="https://jira.cibcatl.com/browse/ENT-${normId}" target="_blank">ENT-${normId} - ${newIntake.intakeName}</a></h3>
                 <p><strong>Date:</strong> ${dispDate}</p>
                 <p><strong>Comments:</strong> ${newIntake.intakeComments}</p>
