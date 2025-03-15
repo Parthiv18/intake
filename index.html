@@ -148,8 +148,10 @@
     
     <script>
       (function() {
-        // ----- Updated GitHub Excel Update Functions with Retry Loop -----
+        // Helper function for delay (exponential backoff can be implemented here)
+        const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+        // ----- Updated GitHub Excel Update Functions with Retry and Delay -----
         async function updateCardStatusInExcel(intakeId, newStatus) {
           let retries = 3;
           while (retries > 0) {
@@ -208,6 +210,7 @@
                 if (updateData.message && updateData.message.includes("does not match")) {
                   console.warn("SHA mismatch detected, retrying update...");
                   retries--;
+                  await delay(1000);
                 } else {
                   throw new Error("Error updating file: " + updateData.message);
                 }
@@ -351,6 +354,7 @@
                 if (updateData.message && updateData.message.includes("does not match")) {
                   console.warn("SHA mismatch detected, retrying deletion...");
                   retries--;
+                  await delay(1000);
                 } else {
                   throw new Error("Error updating file: " + updateData.message);
                 }
