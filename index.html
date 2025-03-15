@@ -204,7 +204,7 @@
             } else {
               if (retries > 0 && updateData.message && updateData.message.includes("does not match")) {
                 console.warn("SHA mismatch detected, retrying update...");
-                return updateCardStatusInExcel(intakeId, newStatus, retries - 1);
+                updateCardStatusInExcel(intakeId, newStatus, retries - 1);
               } else {
                 throw new Error("Error updating file: " + updateData.message);
               }
@@ -277,7 +277,6 @@
               console.log(`New intake ${newIntake.intakeId} added successfully.`);
             } else {
               if(retries > 0 && updateData.message && updateData.message.includes("does not match")){
-                alert("Please wait before adding new intake");
                 console.warn("SHA mismatch, retrying...");
                 return addNewIntakeToExcel(newIntake, retries-1);
               } else {
@@ -286,93 +285,7 @@
             }
           } catch (error) {
             console.error("Failed to add new intake:", error);
-            alert("Failed to add new intake: " + (error.message.includes("does not match") ? "Please wait before adding new intake" : error.message));
             throw error;
-          }
-        }
-        
-        // New function to delete an intake from the Excel file
-        async function deleteIntakeFromExcel(intakeId, retries = 3) {
-          try {
-            const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
-            const getResponse = await fetch(getUrl, {
-              headers: {
-                Authorization: `token ${CONFIG.token}`,
-                Accept: "application/vnd.github+json"
-              }
-            });
-            const getData = await getResponse.json();
-            if(getResponse.status !== 200){
-              throw new Error("Error fetching file: " + getData.message);
-            }
-            const sha = getData.sha;
-            const base64Content = getData.content.replace(/\n/g, "");
-            let workbook = XLSX.read(base64Content, { type: "base64" });
-            const sheetName = "JRM";
-            let sheet = workbook.Sheets[sheetName];
-            let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-            
-            // Find the row index with matching Intake ID (assumed in column 0)
-            let foundIndex = -1;
-            for(let i = 1; i < data.length; i++){
-              if(data[i][0] && data[i][0].toString().trim() === intakeId){
-                foundIndex = i;
-                break;
-              }
-            }
-            if(foundIndex === -1){
-              throw new Error("Intake ID not found.");
-            }
-            // Remove the row from data array
-            data.splice(foundIndex, 1);
-            const newSheet = XLSX.utils.aoa_to_sheet(data);
-            workbook.Sheets[sheetName] = newSheet;
-            const newBase64Content = XLSX.write(workbook, { bookType: "xlsx", type: "base64" });
-            const updateUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`;
-            const updateResponse = await fetch(updateUrl, {
-              method: "PUT",
-              headers: {
-                Authorization: `token ${CONFIG.token}`,
-                Accept: "application/vnd.github+json",
-                "Content-Type": "application/json"
-              },
-              body: JSON.stringify({
-                message: `Delete intake ${intakeId}`,
-                content: newBase64Content,
-                sha: sha,
-                branch: CONFIG.branch
-              })
-            });
-            const updateData = await updateResponse.json();
-            if(updateResponse.status === 200 || updateResponse.status === 201){
-              console.log(`Intake ${intakeId} deleted successfully.`);
-            } else {
-              if(retries > 0 && updateData.message && updateData.message.includes("does not match")){
-                alert("Please wait before deleting intake");
-                console.warn("SHA mismatch, retrying deletion...");
-                return deleteIntakeFromExcel(intakeId, retries-1);
-              } else {
-                throw new Error("Error updating file: " + updateData.message);
-              }
-            }
-          } catch (error) {
-            console.error("Failed to delete intake:", error);
-            throw error;
-          }
-        }
-        
-        // Helper function to delete a card from the page and update local state
-        async function deleteCard(card) {
-          const intakeId = card.getAttribute('data-intake-id').trim();
-          try {
-            await deleteIntakeFromExcel(intakeId);
-            // Remove from local state array
-            state.jrmRows = state.jrmRows.filter(row => row[0].toString().trim() !== intakeId);
-            // Remove card element from the DOM
-            card.parentNode.removeChild(card);
-            filterCards();
-          } catch(error) {
-            alert("Failed to delete intake: " + error.message);
           }
         }
         
@@ -420,17 +333,6 @@
               });
               ul.appendChild(li);
             });
-            // Add the Delete option at the end
-            const liDelete = document.createElement('li');
-            liDelete.textContent = 'Delete';
-            liDelete.style.color = "red";
-            liDelete.addEventListener("click", function() {
-              if (confirm("Are you sure you want to delete this intake?")) {
-                deleteCard(card);
-              }
-              hideContextMenu();
-            });
-            ul.appendChild(liDelete);
             contextMenu.style.top = e.pageY + "px";
             contextMenu.style.left = e.pageX + "px";
             contextMenu.style.display = "block";
