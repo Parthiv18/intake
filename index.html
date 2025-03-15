@@ -144,40 +144,6 @@
         token: "%%MY_GITHUB_TOKEN%%",     // Replace with your GitHub token
         path: "Intake_Database.xlsx"
       };
-
-      // ----- Pending Operations Queue & Processing -----
-      let pendingQueue = [];
-      function queueOperation(op) {
-        pendingQueue.push(op);
-        alert("Please wait data processing");
-      }
-      function processQueue() {
-        if (pendingQueue.length === 0) return;
-        let op = pendingQueue.shift();
-        if (op.type === "add") {
-          addNewIntakeToExcel(op.data, 5).then(() => {
-            console.log("Processed pending add for intake", op.data.intakeId);
-          }).catch(err => {
-            console.error("Pending add failed, requeue", err);
-            pendingQueue.push(op);
-          });
-        } else if (op.type === "delete") {
-          deleteCardFromExcel(op.data.intakeId, 5).then(() => {
-            console.log("Processed pending delete for intake", op.data.intakeId);
-          }).catch(err => {
-            console.error("Pending delete failed, requeue", err);
-            pendingQueue.push(op);
-          });
-        } else if (op.type === "update") {
-          updateCardStatusInExcel(op.data.intakeId, op.data.newStatus, 5).then(() => {
-            console.log("Processed pending update for intake", op.data.intakeId);
-          }).catch(err => {
-            console.error("Pending update failed, requeue", err);
-            pendingQueue.push(op);
-          });
-        }
-      }
-      setInterval(processQueue, 10000);
     </script>
     
     <script>
@@ -238,17 +204,13 @@
             } else {
               if (retries > 0 && updateData.message && updateData.message.includes("does not match")) {
                 console.warn("SHA mismatch detected, retrying update...");
-                return updateCardStatusInExcel(intakeId, newStatus, retries - 1);
-              } else if (updateData.message && updateData.message.includes("does not match")) {
-                queueOperation({ type: "update", data: { intakeId, newStatus } });
-                return;
+                updateCardStatusInExcel(intakeId, newStatus, retries - 1);
               } else {
                 throw new Error("Error updating file: " + updateData.message);
               }
             }
           } catch (error) {
             console.error("Update failed:", error);
-            throw error;
           }
         }
         
@@ -315,11 +277,8 @@
               console.log(`New intake ${newIntake.intakeId} added successfully.`);
             } else {
               if(retries > 0 && updateData.message && updateData.message.includes("does not match")){
-                console.warn("SHA mismatch, retrying add...");
+                console.warn("SHA mismatch, retrying...");
                 return addNewIntakeToExcel(newIntake, retries-1);
-              } else if(updateData.message && updateData.message.includes("does not match")){
-                queueOperation({ type: "add", data: newIntake });
-                return;
               } else {
                 throw new Error("Error updating file: " + updateData.message);
               }
@@ -330,6 +289,7 @@
           }
         }
         
+        // ----- New: Delete Card from Excel Function -----
         async function deleteCardFromExcel(intakeId, retries = 3) {
           console.log(`Deleting card ${intakeId}...`);
           try {
@@ -386,16 +346,12 @@
               if (retries > 0 && updateData.message && updateData.message.includes("does not match")) {
                 console.warn("SHA mismatch detected, retrying deletion...");
                 return deleteCardFromExcel(intakeId, retries - 1);
-              } else if (updateData.message && updateData.message.includes("does not match")) {
-                queueOperation({ type: "delete", data: { intakeId } });
-                return;
               } else {
                 throw new Error("Error updating file: " + updateData.message);
               }
             }
           } catch (error) {
             console.error("Delete failed:", error);
-            throw error;
           }
         }
         
@@ -725,9 +681,7 @@
               this.reset();
               filterCards(); // update the counter
             } catch (err) {
-              // If an error occurs because of SHA mismatch the operation is queued,
-              // so simply notify the user.
-              alert("Please wait data processing");
+              alert("Failed to add new intake: " + err.message);
             }
           });
           filterCards();
