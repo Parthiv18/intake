@@ -299,17 +299,38 @@
             return o; 
           };
 
-        async function fetchData() {
-          try {
-            const resp = await fetch("Intake_Database.xlsm"),
-              data = await resp.arrayBuffer(),
-              wb = XLSX.read(data, { type: "array", cellDates: true });
-            processJRM(wb.Sheets["JRM"]);
-            processMetrics(wb.Sheets["Metrics"]);
-          } catch (e) {
-            console.error("Error loading Excel file:", e);
-          }
+          async function fetchData() {
+            try {
+              // Construct GitHub API URL to fetch the file content
+              const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
+              const response = await fetch(getUrl, {
+                headers: {
+                  Authorization: `token ${CONFIG.token}`,
+                  Accept: "application/vnd.github+json"
+                }
+              });
+              const fileData = await response.json();
+              const base64Content = fileData.content.replace(/\n/g, "");
+
+              // Convert Base64 string to ArrayBuffer
+              const binaryString = atob(base64Content);
+              const len = binaryString.length;
+              const bytes = new Uint8Array(len);
+              for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+              }
+              
+              // Read the workbook using XLSX library
+              const wb = XLSX.read(bytes.buffer, { type: "array", cellDates: true });
+              
+              // Process sheets to update your webpage
+              processJRM(wb.Sheets["JRM"]);
+              processMetrics(wb.Sheets["Metrics"]);
+            } catch (e) {
+              console.error("Error loading updated Excel file:", e);
+            }
         }
+
 
         function processMetrics(sheet) {
           const raw = XLSX.utils.sheet_to_json(sheet, { header: 1 });
