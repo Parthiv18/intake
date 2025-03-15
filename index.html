@@ -291,7 +291,6 @@
           }
         }
         
-        // New function to delete an intake from the Excel file
         async function deleteIntakeFromExcel(intakeId, retries = 3) {
           try {
             const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
@@ -361,14 +360,11 @@
           }
         }
         
-        // Helper function to delete a card from the page and update local state
         async function deleteCard(card) {
           const intakeId = card.getAttribute('data-intake-id').trim();
           try {
             await deleteIntakeFromExcel(intakeId);
-            // Remove from local state array
             state.jrmRows = state.jrmRows.filter(row => row[0].toString().trim() !== intakeId);
-            // Remove card element from the DOM
             card.parentNode.removeChild(card);
             filterCards();
           } catch(error) {
@@ -420,7 +416,7 @@
               });
               ul.appendChild(li);
             });
-            // Add the Delete option at the end
+            // Append the Delete option
             const liDelete = document.createElement('li');
             liDelete.textContent = 'Delete';
             liDelete.style.color = "red";
@@ -453,12 +449,14 @@
             rawMetrics: []
           };
 
-        // Helper functions
         const $ = id => document.getElementById(id),
           on = (sel, evt, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(evt, fn)),
           fmtCur = num => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(num),
           parseCur = val => typeof val === "string" ? parseFloat(val.replace(/[^0-9.-]+/g, "")) || 0 : Number(val) || 0,
-          normalizeID = id => (id = String(id || "").trim(), id.toUpperCase().startsWith("ENT-") ? id.slice(4) : id),
+          normalizeID = id => {
+            id = String(id || "").trim();
+            return id.toUpperCase().startsWith("ENT-") ? id.slice(4) : id;
+          },
           inRange = (dt, s, e) => (!s || dt >= s) && (!e || dt <= e),
           createOption = (val, text) => { 
             const o = document.createElement("option"); 
@@ -468,7 +466,6 @@
 
         async function fetchData() {
           try {
-            // Fetch the Excel file from GitHub to always get the latest version
             const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
             const response = await fetch(getUrl, {
               headers: {
@@ -478,7 +475,6 @@
             });
             const fileData = await response.json();
             const base64Content = fileData.content.replace(/\n/g, "");
-            // Convert Base64 to ArrayBuffer
             const binaryString = atob(base64Content);
             const len = binaryString.length;
             const bytes = new Uint8Array(len);
@@ -557,7 +553,6 @@
           if (!raw || raw.length < 2) return console.error("JRM sheet has no data.");
           state.jrmHeader = raw[0];
           state.jrmRows = raw.slice(1);
-          // Build the top filter and add form HTML for the JRM section
           let html = `<div class="container">
             <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
               <input type="text" id="searchInput" placeholder="Search by Intake ID, Name or Tags">
@@ -572,7 +567,6 @@
               <button id="clearButton">Clear</button>
               <span id="counter">Intakes Count: 0</span>
             </div>
-            <!-- Add New Intake Form (hidden by default) -->
             <div id="addFormContainer" style="display:none;">
               <h3>Add New Intake</h3>
               <form id="addIntakeForm">
@@ -585,9 +579,8 @@
                 <button type="button" id="cancelAdd">Cancel</button>
               </form>
             </div>`;
-          // Process each row to create JRM cards
           let cards = { jrm: [], estimates: [], approved: [], ofs: [] };
-          state.jrmRows.forEach((row, idx) => {
+          state.jrmRows.forEach((row) => {
             let [id = "", name = "", comments = "", tags = "", rawStatus = "", attach = "", date] = row,
               status = String(rawStatus).toLowerCase(),
               dispDate = date instanceof Date ? date.toLocaleDateString("en-US") : date,
@@ -625,7 +618,6 @@
           </div>`;
           $("jrm-content").innerHTML = html;
           
-          // Add event listeners for filtering
           on("#searchInput, #startDate, #endDate, #statusDropdown", "input", filterCards);
           $("clearButton").addEventListener("click", () => {
             $("searchInput").value = "";
@@ -639,16 +631,13 @@
               showData(e.target.getAttribute("data-intake-id"));
           });
           
-          // Add button to toggle the add form
           $("addButton").addEventListener("click", () => {
             const formContainer = $("addFormContainer");
             formContainer.style.display = formContainer.style.display === "none" ? "block" : "none";
           });
-          // Cancel button to hide add form
           $("cancelAdd").addEventListener("click", () => {
             $("addFormContainer").style.display = "none";
           });
-          // Handle add intake form submission
           $("addIntakeForm").addEventListener("submit", async function(e) {
             e.preventDefault();
             const formData = new FormData(this);
@@ -659,7 +648,6 @@
               intakeTags: formData.get("intakeTags").trim(),
               intakeDate: formData.get("intakeDate")
             };
-            // Check if the intake ID already exists in the current state
             let duplicate = state.jrmRows.some(row => row[0] && row[0].toString().trim() === newIntake.intakeId);
             if (duplicate) {
               alert("Intake ID already exists. Please use a unique Intake ID.");
@@ -667,7 +655,6 @@
             }
             try {
               await addNewIntakeToExcel(newIntake);
-              // Update local state: add the new row at the top
               const newRow = [
                 newIntake.intakeId,
                 newIntake.intakeName,
@@ -678,11 +665,9 @@
                 newIntake.intakeDate
               ];
               state.jrmRows.unshift(newRow);
-              // Update mappings for the new intake
               const normId = normalizeID(newIntake.intakeId);
               state.jrmNameMapping[normId] = newIntake.intakeName;
               state.jrmDateMapping[normId] = newIntake.intakeDate;
-              // Create new card HTML and prepend it to the JRM column (after header)
               const dispDate = new Date(newIntake.intakeDate).toLocaleDateString("en-US");
               const newCardHtml = `<div id="card-ENT-${normId}" class="jrm-card" data-intake-id="${newIntake.intakeId}" data-intake-name="${newIntake.intakeName}" data-intake-tags="${newIntake.intakeTags}" data-intake-date="${newIntake.intakeDate}" data-status="jrm" data-closed="false">
                 <h3><a href="https://jira.cibcatl.com/browse/ENT-${normId}" target="_blank">ENT-${normId} - ${newIntake.intakeName}</a></h3>
@@ -697,10 +682,9 @@
               } else {
                 jrmCol.insertAdjacentHTML("afterbegin", newCardHtml);
               }
-              // Hide the form and reset it
               $("addFormContainer").style.display = "none";
               this.reset();
-              filterCards(); // update the counter
+              filterCards();
             } catch (err) {
               alert("Failed to add new intake: " + err.message);
             }
@@ -985,35 +969,6 @@
           XLSX.writeFile(wb, "Export.xlsx");
         }
         
-        function filterCards() {
-          const input = $("searchInput").value.toLowerCase(),
-            start = $("startDate").value,
-            end = $("endDate").value,
-            status = $("statusDropdown").value,
-            cards = Array.from(document.getElementsByClassName("jrm-card"));
-          let count = 0;
-          cards.forEach(card => {
-            const id = card.getAttribute("data-intake-id").toLowerCase(),
-              name = card.getAttribute("data-intake-name").toLowerCase(),
-              tags = card.getAttribute("data-intake-tags").toLowerCase(),
-              searchOk = id.includes(input) || name.includes(input) || tags.includes(input),
-              cardDate = card.getAttribute("data-intake-date"),
-              closed = card.getAttribute("data-closed"),
-              cardStatus = card.getAttribute("data-status"),
-              dateOk = (!start || cardDate >= start) && (!end || cardDate <= end);
-            if (status === "ofs") {
-              card.style.display = cardStatus === "ofs" && searchOk && dateOk ? "" : "none";
-              if (card.style.display === "") count++;
-            } else {
-              if (cardStatus === "ofs") card.style.display = "none";
-              else card.style.display = (status === "all" || (status === "closed" && closed === "true")) && searchOk && dateOk ? "" : "none", card.style.display === "" && count++;
-            }
-          });
-          $("non-ofs-container").style.display = status === "ofs" ? "none" : "block";
-          $("ofs-wrapper").style.display = status === "ofs" ? "block" : "none";
-          $("counter").innerText = "Intakes Count: " + count;
-        }
-
         function showData(id) {
           $("total-content").classList.add("hidden");
           $("jrm-content").classList.add("hidden");
