@@ -148,72 +148,78 @@
     
     <script>
       (function() {
-        // ----- GitHub Excel Update Functions -----
-        async function updateCardStatusInExcel(intakeId, newStatus, retries = 3) {
-          console.log(`Updating card ${intakeId} to status ${newStatus}...`);
-          try {
-            const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
-            const getResponse = await fetch(getUrl, {
-              headers: {
-                Authorization: `token ${CONFIG.token}`,
-                Accept: "application/vnd.github+json"
+        // ----- Updated GitHub Excel Update Functions with Retry Loop -----
+
+        async function updateCardStatusInExcel(intakeId, newStatus) {
+          let retries = 3;
+          while (retries > 0) {
+            try {
+              const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
+              const getResponse = await fetch(getUrl, {
+                headers: {
+                  Authorization: `token ${CONFIG.token}`,
+                  Accept: "application/vnd.github+json"
+                }
+              });
+              const getData = await getResponse.json();
+              if (getResponse.status !== 200) {
+                throw new Error("Error fetching file: " + getData.message);
               }
-            });
-            const getData = await getResponse.json();
-            if (getResponse.status !== 200) {
-              throw new Error("Error fetching file: " + getData.message);
-            }
-            const sha = getData.sha;
-            const base64Content = getData.content.replace(/\n/g, "");
-            let workbook = XLSX.read(base64Content, { type: "base64" });
-            const sheetName = "JRM";
-            let sheet = workbook.Sheets[sheetName];
-            let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-            let found = false;
-            for (let i = 1; i < data.length; i++) {
-              if (data[i][0] && data[i][0].toString().trim() === intakeId) {
-                data[i][4] = newStatus;
-                found = true;
-                break;
+              const sha = getData.sha;
+              const base64Content = getData.content.replace(/\n/g, "");
+              let workbook = XLSX.read(base64Content, { type: "base64" });
+              const sheetName = "JRM";
+              let sheet = workbook.Sheets[sheetName];
+              let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+              let found = false;
+              for (let i = 1; i < data.length; i++) {
+                if (data[i][0] && data[i][0].toString().trim() === intakeId) {
+                  data[i][4] = newStatus;
+                  found = true;
+                  break;
+                }
               }
-            }
-            if (!found) {
-              throw new Error("Intake ID not found in the Excel file.");
-            }
-            const newSheet = XLSX.utils.aoa_to_sheet(data);
-            workbook.Sheets[sheetName] = newSheet;
-            const newBase64Content = XLSX.write(workbook, { bookType: "xlsx", type: "base64" });
-            const updateUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`;
-            const updateResponse = await fetch(updateUrl, {
-              method: "PUT",
-              headers: {
-                Authorization: `token ${CONFIG.token}`,
-                Accept: "application/vnd.github+json",
-                "Content-Type": "application/json"
-              },
-              body: JSON.stringify({
-                message: `Update card ${intakeId} status to ${newStatus}`,
-                content: newBase64Content,
-                sha: sha,
-                branch: CONFIG.branch
-              })
-            });
-            const updateData = await updateResponse.json();
-            if (updateResponse.status === 200 || updateResponse.status === 201) {
-              console.log(`Card ${intakeId} updated successfully in the Excel file.`);
-            } else {
-              if (retries > 0 && updateData.message && updateData.message.includes("does not match")) {
-                console.warn("SHA mismatch detected, retrying update...");
-                updateCardStatusInExcel(intakeId, newStatus, retries - 1);
+              if (!found) {
+                throw new Error("Intake ID not found in the Excel file.");
+              }
+              const newSheet = XLSX.utils.aoa_to_sheet(data);
+              workbook.Sheets[sheetName] = newSheet;
+              const newBase64Content = XLSX.write(workbook, { bookType: "xlsx", type: "base64" });
+              const updateUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`;
+              const updateResponse = await fetch(updateUrl, {
+                method: "PUT",
+                headers: {
+                  Authorization: `token ${CONFIG.token}`,
+                  Accept: "application/vnd.github+json",
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  message: `Update card ${intakeId} status to ${newStatus}`,
+                  content: newBase64Content,
+                  sha: sha,
+                  branch: CONFIG.branch
+                })
+              });
+              const updateData = await updateResponse.json();
+              if (updateResponse.status === 200 || updateResponse.status === 201) {
+                console.log(`Card ${intakeId} updated successfully.`);
+                return;
               } else {
-                throw new Error("Error updating file: " + updateData.message);
+                if (updateData.message && updateData.message.includes("does not match")) {
+                  console.warn("SHA mismatch detected, retrying update...");
+                  retries--;
+                } else {
+                  throw new Error("Error updating file: " + updateData.message);
+                }
               }
+            } catch (error) {
+              console.error("Update failed:", error);
+              throw error;
             }
-          } catch (error) {
-            console.error("Update failed:", error);
           }
+          throw new Error("Failed to update card after multiple retries.");
         }
-        
+
         async function addNewIntakeToExcel(newIntake, retries = 3) {
           try {
             const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
@@ -234,7 +240,7 @@
             let sheet = workbook.Sheets[sheetName];
             let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
             
-            // Check for duplicate Intake ID (assumed to be in column 0)
+            // Check for duplicate Intake ID
             let intakeIdNormalized = newIntake.intakeId.toString().trim();
             for(let i = 1; i < data.length; i++){
               if(data[i][0] && data[i][0].toString().trim() === intakeIdNormalized){
@@ -242,17 +248,15 @@
               }
             }
             
-            // Create new row: [Intake ID, Intake Name, Intake Comments, Intake Tags, Status, Attachments, Date]
             const newRow = [
               newIntake.intakeId,
               newIntake.intakeName,
               newIntake.intakeComments,
               newIntake.intakeTags,
-              "jrm",   // default status
-              "",      // attachments blank
+              "jrm",
+              "",
               newIntake.intakeDate
             ];
-            // Insert new row right after header (index 1)
             data.splice(1, 0, newRow);
             const newSheet = XLSX.utils.aoa_to_sheet(data);
             workbook.Sheets[sheetName] = newSheet;
@@ -288,71 +292,75 @@
             throw error;
           }
         }
-        
-        // ----- New: Delete Card from Excel Function -----
-        async function deleteCardFromExcel(intakeId, retries = 3) {
-          console.log(`Deleting card ${intakeId}...`);
-          try {
-            const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
-            const getResponse = await fetch(getUrl, {
-              headers: {
-                Authorization: `token ${CONFIG.token}`,
-                Accept: "application/vnd.github+json"
+
+        async function deleteCardFromExcel(intakeId) {
+          let retries = 3;
+          while (retries > 0) {
+            try {
+              const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
+              const getResponse = await fetch(getUrl, {
+                headers: {
+                  Authorization: `token ${CONFIG.token}`,
+                  Accept: "application/vnd.github+json"
+                }
+              });
+              const getData = await getResponse.json();
+              if (getResponse.status !== 200) {
+                throw new Error("Error fetching file: " + getData.message);
               }
-            });
-            const getData = await getResponse.json();
-            if (getResponse.status !== 200) {
-              throw new Error("Error fetching file: " + getData.message);
-            }
-            const sha = getData.sha;
-            const base64Content = getData.content.replace(/\n/g, "");
-            let workbook = XLSX.read(base64Content, { type: "base64" });
-            const sheetName = "JRM";
-            let sheet = workbook.Sheets[sheetName];
-            let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-            let found = false;
-            for (let i = 1; i < data.length; i++) {
-              if (data[i][0] && data[i][0].toString().trim() === intakeId) {
-                data.splice(i, 1);
-                found = true;
-                break;
+              const sha = getData.sha;
+              const base64Content = getData.content.replace(/\n/g, "");
+              let workbook = XLSX.read(base64Content, { type: "base64" });
+              const sheetName = "JRM";
+              let sheet = workbook.Sheets[sheetName];
+              let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+              let found = false;
+              for (let i = 1; i < data.length; i++) {
+                if (data[i][0] && data[i][0].toString().trim() === intakeId) {
+                  data.splice(i, 1);
+                  found = true;
+                  break;
+                }
               }
-            }
-            if (!found) {
-              throw new Error("Intake ID not found in the Excel file.");
-            }
-            const newSheet = XLSX.utils.aoa_to_sheet(data);
-            workbook.Sheets[sheetName] = newSheet;
-            const newBase64Content = XLSX.write(workbook, { bookType: "xlsx", type: "base64" });
-            const updateUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`;
-            const updateResponse = await fetch(updateUrl, {
-              method: "PUT",
-              headers: {
-                Authorization: `token ${CONFIG.token}`,
-                Accept: "application/vnd.github+json",
-                "Content-Type": "application/json"
-              },
-              body: JSON.stringify({
-                message: `Delete card ${intakeId}`,
-                content: newBase64Content,
-                sha: sha,
-                branch: CONFIG.branch
-              })
-            });
-            const updateData = await updateResponse.json();
-            if (updateResponse.status === 200 || updateResponse.status === 201) {
-              console.log(`Card ${intakeId} deleted successfully in the Excel file.`);
-            } else {
-              if (retries > 0 && updateData.message && updateData.message.includes("does not match")) {
-                console.warn("SHA mismatch detected, retrying deletion...");
-                return deleteCardFromExcel(intakeId, retries - 1);
+              if (!found) {
+                throw new Error("Intake ID not found in the Excel file.");
+              }
+              const newSheet = XLSX.utils.aoa_to_sheet(data);
+              workbook.Sheets[sheetName] = newSheet;
+              const newBase64Content = XLSX.write(workbook, { bookType: "xlsx", type: "base64" });
+              const updateUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`;
+              const updateResponse = await fetch(updateUrl, {
+                method: "PUT",
+                headers: {
+                  Authorization: `token ${CONFIG.token}`,
+                  Accept: "application/vnd.github+json",
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  message: `Delete card ${intakeId}`,
+                  content: newBase64Content,
+                  sha: sha,
+                  branch: CONFIG.branch
+                })
+              });
+              const updateData = await updateResponse.json();
+              if (updateResponse.status === 200 || updateResponse.status === 201) {
+                console.log(`Card ${intakeId} deleted successfully.`);
+                return;
               } else {
-                throw new Error("Error updating file: " + updateData.message);
+                if (updateData.message && updateData.message.includes("does not match")) {
+                  console.warn("SHA mismatch detected, retrying deletion...");
+                  retries--;
+                } else {
+                  throw new Error("Error updating file: " + updateData.message);
+                }
               }
+            } catch (error) {
+              console.error("Delete failed:", error);
+              throw error;
             }
-          } catch (error) {
-            console.error("Delete failed:", error);
           }
+          throw new Error("Failed to delete card after multiple retries.");
         }
         
         // ----- Custom Context Menu Functionality -----
@@ -432,7 +440,6 @@
             rawMetrics: []
           };
 
-        // Helper functions
         const $ = id => document.getElementById(id),
           on = (sel, evt, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(evt, fn)),
           fmtCur = num => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(num),
@@ -447,7 +454,6 @@
 
         async function fetchData() {
           try {
-            // Fetch the Excel file from GitHub to always get the latest version
             const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
             const response = await fetch(getUrl, {
               headers: {
@@ -457,7 +463,6 @@
             });
             const fileData = await response.json();
             const base64Content = fileData.content.replace(/\n/g, "");
-            // Convert Base64 to ArrayBuffer
             const binaryString = atob(base64Content);
             const len = binaryString.length;
             const bytes = new Uint8Array(len);
@@ -536,7 +541,6 @@
           if (!raw || raw.length < 2) return console.error("JRM sheet has no data.");
           state.jrmHeader = raw[0];
           state.jrmRows = raw.slice(1);
-          // Build the top filter and add form HTML for the JRM section
           let html = `<div class="container">
             <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
               <input type="text" id="searchInput" placeholder="Search by Intake ID, Name or Tags">
@@ -551,7 +555,6 @@
               <button id="clearButton">Clear</button>
               <span id="counter">Intakes Count: 0</span>
             </div>
-            <!-- Add New Intake Form (hidden by default) -->
             <div id="addFormContainer" style="display:none;">
               <h3>Add New Intake</h3>
               <form id="addIntakeForm">
@@ -564,9 +567,8 @@
                 <button type="button" id="cancelAdd">Cancel</button>
               </form>
             </div>`;
-          // Process each row to create JRM cards
           let cards = { jrm: [], estimates: [], approved: [], ofs: [] };
-          state.jrmRows.forEach((row, idx) => {
+          state.jrmRows.forEach((row) => {
             let [id = "", name = "", comments = "", tags = "", rawStatus = "", attach = "", date] = row,
               status = String(rawStatus).toLowerCase(),
               dispDate = date instanceof Date ? date.toLocaleDateString("en-US") : date,
@@ -603,8 +605,6 @@
             </div>
           </div>`;
           $("jrm-content").innerHTML = html;
-          
-          // Add event listeners for filtering
           on("#searchInput, #startDate, #endDate, #statusDropdown", "input", filterCards);
           $("clearButton").addEventListener("click", () => {
             $("searchInput").value = "";
@@ -617,17 +617,13 @@
             if (e.target.classList.contains("view-link"))
               showData(e.target.getAttribute("data-intake-id"));
           });
-          
-          // Add button to toggle the add form
           $("addButton").addEventListener("click", () => {
             const formContainer = $("addFormContainer");
             formContainer.style.display = formContainer.style.display === "none" ? "block" : "none";
           });
-          // Cancel button to hide add form
           $("cancelAdd").addEventListener("click", () => {
             $("addFormContainer").style.display = "none";
           });
-          // Handle add intake form submission
           $("addIntakeForm").addEventListener("submit", async function(e) {
             e.preventDefault();
             const formData = new FormData(this);
@@ -638,7 +634,6 @@
               intakeTags: formData.get("intakeTags").trim(),
               intakeDate: formData.get("intakeDate")
             };
-            // Check if the intake ID already exists in the current state
             let duplicate = state.jrmRows.some(row => row[0] && row[0].toString().trim() === newIntake.intakeId);
             if (duplicate) {
               alert("Intake ID already exists. Please use a unique Intake ID.");
@@ -646,7 +641,6 @@
             }
             try {
               await addNewIntakeToExcel(newIntake);
-              // Update local state: add the new row at the top
               const newRow = [
                 newIntake.intakeId,
                 newIntake.intakeName,
@@ -657,11 +651,9 @@
                 newIntake.intakeDate
               ];
               state.jrmRows.unshift(newRow);
-              // Update mappings for the new intake
               const normId = normalizeID(newIntake.intakeId);
               state.jrmNameMapping[normId] = newIntake.intakeName;
               state.jrmDateMapping[normId] = newIntake.intakeDate;
-              // Create new card HTML and prepend it to the JRM column (after header)
               const dispDate = new Date(newIntake.intakeDate).toLocaleDateString("en-US");
               const newCardHtml = `<div id="card-ENT-${normId}" class="jrm-card" data-intake-id="${newIntake.intakeId}" data-intake-name="${newIntake.intakeName}" data-intake-tags="${newIntake.intakeTags}" data-intake-date="${newIntake.intakeDate}" data-status="jrm" data-closed="false">
                 <h3><a href="https://jira.cibcatl.com/browse/ENT-${normId}" target="_blank">ENT-${normId} - ${newIntake.intakeName}</a></h3>
@@ -676,10 +668,9 @@
               } else {
                 jrmCol.insertAdjacentHTML("afterbegin", newCardHtml);
               }
-              // Hide the form and reset it
               $("addFormContainer").style.display = "none";
               this.reset();
-              filterCards(); // update the counter
+              filterCards();
             } catch (err) {
               alert("Failed to add new intake: " + err.message);
             }
