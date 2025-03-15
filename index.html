@@ -107,6 +107,15 @@
       #contextMenu li:hover {
         background: #eee;
       }
+      /* Add Form Styles */
+      #addFormContainer {
+        background: #eef; 
+        padding: 15px; 
+        border-radius: 4px; 
+        margin-bottom: 15px;
+      }
+      #addFormContainer label { display: block; margin: 5px 0; }
+      #addFormContainer input { margin-left: 10px; }
     </style>
   </head>
   <body>
@@ -139,11 +148,10 @@
     
     <script>
       (function() {
-        // ----- GitHub Excel Update Function -----
+        // ----- GitHub Excel Update Functions -----
         async function updateCardStatusInExcel(intakeId, newStatus, retries = 3) {
           console.log(`Updating card ${intakeId} to status ${newStatus}...`);
           try {
-            // Step 1: Fetch the current XLSX file from GitHub
             const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
             const getResponse = await fetch(getUrl, {
               headers: {
@@ -157,19 +165,13 @@
             }
             const sha = getData.sha;
             const base64Content = getData.content.replace(/\n/g, "");
-
-            // Step 2: Read the workbook and update the JRM sheet
             let workbook = XLSX.read(base64Content, { type: "base64" });
-            // Assumes the JRM sheet is named "JRM"
             const sheetName = "JRM";
             let sheet = workbook.Sheets[sheetName];
             let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-            
-            // Locate the row with matching Intake ID (assumed to be in the first column)
             let found = false;
             for (let i = 1; i < data.length; i++) {
               if (data[i][0] && data[i][0].toString().trim() === intakeId) {
-                // Update the Status column (assumed to be the 5th column; adjust index if needed)
                 data[i][4] = newStatus;
                 found = true;
                 break;
@@ -178,15 +180,9 @@
             if (!found) {
               throw new Error("Intake ID not found in the Excel file.");
             }
-            
-            // Convert updated data back into a worksheet and update the workbook
             const newSheet = XLSX.utils.aoa_to_sheet(data);
             workbook.Sheets[sheetName] = newSheet;
-            
-            // Step 3: Write the updated workbook to a base64 string
             const newBase64Content = XLSX.write(workbook, { bookType: "xlsx", type: "base64" });
-            
-            // Step 4: Commit the updated file back to GitHub
             const updateUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`;
             const updateResponse = await fetch(updateUrl, {
               method: "PUT",
@@ -206,7 +202,6 @@
             if (updateResponse.status === 200 || updateResponse.status === 201) {
               console.log(`Card ${intakeId} updated successfully in the Excel file.`);
             } else {
-              // Retry if SHA mismatch error detected.
               if (retries > 0 && updateData.message && updateData.message.includes("does not match")) {
                 console.warn("SHA mismatch detected, retrying update...");
                 updateCardStatusInExcel(intakeId, newStatus, retries - 1);
@@ -219,11 +214,85 @@
           }
         }
         
-        // ----- New Function to Delete Card from Excel -----
+        async function addNewIntakeToExcel(newIntake, retries = 3) {
+          try {
+            const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
+            const getResponse = await fetch(getUrl, {
+              headers: {
+                Authorization: `token ${CONFIG.token}`,
+                Accept: "application/vnd.github+json"
+              }
+            });
+            const getData = await getResponse.json();
+            if(getResponse.status !== 200){
+              throw new Error("Error fetching file: " + getData.message);
+            }
+            const sha = getData.sha;
+            const base64Content = getData.content.replace(/\n/g, "");
+            let workbook = XLSX.read(base64Content, { type: "base64" });
+            const sheetName = "JRM";
+            let sheet = workbook.Sheets[sheetName];
+            let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+            
+            // Check for duplicate Intake ID (assumed to be in column 0)
+            let intakeIdNormalized = newIntake.intakeId.toString().trim();
+            for(let i = 1; i < data.length; i++){
+              if(data[i][0] && data[i][0].toString().trim() === intakeIdNormalized){
+                throw new Error("Intake ID already exists.");
+              }
+            }
+            
+            // Create new row: [Intake ID, Intake Name, Intake Comments, Intake Tags, Status, Attachments, Date]
+            const newRow = [
+              newIntake.intakeId,
+              newIntake.intakeName,
+              newIntake.intakeComments,
+              newIntake.intakeTags,
+              "jrm",   // default status
+              "",      // attachments blank
+              newIntake.intakeDate
+            ];
+            // Insert new row right after header (index 1)
+            data.splice(1, 0, newRow);
+            const newSheet = XLSX.utils.aoa_to_sheet(data);
+            workbook.Sheets[sheetName] = newSheet;
+            const newBase64Content = XLSX.write(workbook, { bookType: "xlsx", type: "base64" });
+            const updateUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`;
+            const updateResponse = await fetch(updateUrl, {
+              method: "PUT",
+              headers: {
+                Authorization: `token ${CONFIG.token}`,
+                Accept: "application/vnd.github+json",
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                message: `Add new intake ${newIntake.intakeId}`,
+                content: newBase64Content,
+                sha: sha,
+                branch: CONFIG.branch
+              })
+            });
+            const updateData = await updateResponse.json();
+            if(updateResponse.status === 200 || updateResponse.status === 201){
+              console.log(`New intake ${newIntake.intakeId} added successfully.`);
+            } else {
+              if(retries > 0 && updateData.message && updateData.message.includes("does not match")){
+                console.warn("SHA mismatch, retrying...");
+                return addNewIntakeToExcel(newIntake, retries-1);
+              } else {
+                throw new Error("Error updating file: " + updateData.message);
+              }
+            }
+          } catch (error) {
+            console.error("Failed to add new intake:", error);
+            throw error;
+          }
+        }
+        
+        // ----- New: Delete Card from Excel Function -----
         async function deleteCardFromExcel(intakeId, retries = 3) {
           console.log(`Deleting card ${intakeId}...`);
           try {
-            // Step 1: Fetch the current XLSX file from GitHub
             const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
             const getResponse = await fetch(getUrl, {
               headers: {
@@ -237,36 +306,24 @@
             }
             const sha = getData.sha;
             const base64Content = getData.content.replace(/\n/g, "");
-
-            // Step 2: Read the workbook and delete the row in the JRM sheet
             let workbook = XLSX.read(base64Content, { type: "base64" });
             const sheetName = "JRM";
             let sheet = workbook.Sheets[sheetName];
             let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-            
-            // Locate the row with matching Intake ID (assumed to be in the first column)
-            let rowIndex = -1;
+            let found = false;
             for (let i = 1; i < data.length; i++) {
               if (data[i][0] && data[i][0].toString().trim() === intakeId) {
-                rowIndex = i;
+                data.splice(i, 1);
+                found = true;
                 break;
               }
             }
-            if (rowIndex === -1) {
+            if (!found) {
               throw new Error("Intake ID not found in the Excel file.");
             }
-            
-            // Remove the found row from the data array
-            data.splice(rowIndex, 1);
-            
-            // Convert updated data back into a worksheet and update the workbook
             const newSheet = XLSX.utils.aoa_to_sheet(data);
             workbook.Sheets[sheetName] = newSheet;
-            
-            // Step 3: Write the updated workbook to a base64 string
             const newBase64Content = XLSX.write(workbook, { bookType: "xlsx", type: "base64" });
-            
-            // Step 4: Commit the updated file back to GitHub
             const updateUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`;
             const updateResponse = await fetch(updateUrl, {
               method: "PUT",
@@ -284,17 +341,17 @@
             });
             const updateData = await updateResponse.json();
             if (updateResponse.status === 200 || updateResponse.status === 201) {
-              console.log(`Card ${intakeId} deleted successfully from the Excel file.`);
+              console.log(`Card ${intakeId} deleted successfully in the Excel file.`);
             } else {
               if (retries > 0 && updateData.message && updateData.message.includes("does not match")) {
                 console.warn("SHA mismatch detected, retrying deletion...");
-                deleteCardFromExcel(intakeId, retries - 1);
+                return deleteCardFromExcel(intakeId, retries - 1);
               } else {
                 throw new Error("Error updating file: " + updateData.message);
               }
             }
           } catch (error) {
-            console.error("Deletion failed:", error);
+            console.error("Delete failed:", error);
           }
         }
         
@@ -317,7 +374,6 @@
             } else {
               container.appendChild(card);
             }
-            // Update the card's status attribute and call GitHub update
             card.setAttribute('data-status', newStatus);
             const intakeId = card.getAttribute('data-intake-id');
             updateCardStatusInExcel(intakeId, newStatus);
@@ -334,7 +390,6 @@
             const contextMenu = document.getElementById('contextMenu');
             const ul = contextMenu.querySelector('ul');
             ul.innerHTML = "";
-            // Create Move options
             options.forEach(option => {
               const li = document.createElement('li');
               li.textContent = 'Move to ' + option;
@@ -344,17 +399,17 @@
               });
               ul.appendChild(li);
             });
-            // Append Delete option as the last option
-            const liDelete = document.createElement('li');
-            liDelete.textContent = 'Delete';
-            liDelete.addEventListener("click", function() {
+            // Append "Delete" option as the last item
+            const deleteOption = document.createElement('li');
+            deleteOption.textContent = 'Delete';
+            deleteOption.addEventListener("click", function() {
               const intakeId = card.getAttribute('data-intake-id');
-              // Delete from Excel and remove card from page
               deleteCardFromExcel(intakeId);
               card.remove();
               hideContextMenu();
             });
-            ul.appendChild(liDelete);
+            ul.appendChild(deleteOption);
+            
             contextMenu.style.top = e.pageY + "px";
             contextMenu.style.left = e.pageX + "px";
             contextMenu.style.display = "block";
@@ -390,38 +445,32 @@
             return o; 
           };
 
-          async function fetchData() {
-            try {
-              // Construct GitHub API URL to fetch the file content
-              const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
-              const response = await fetch(getUrl, {
-                headers: {
-                  Authorization: `token ${CONFIG.token}`,
-                  Accept: "application/vnd.github+json"
-                }
-              });
-              const fileData = await response.json();
-              const base64Content = fileData.content.replace(/\n/g, "");
-
-              // Convert Base64 string to ArrayBuffer
-              const binaryString = atob(base64Content);
-              const len = binaryString.length;
-              const bytes = new Uint8Array(len);
-              for (let i = 0; i < len; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
+        async function fetchData() {
+          try {
+            // Fetch the Excel file from GitHub to always get the latest version
+            const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
+            const response = await fetch(getUrl, {
+              headers: {
+                Authorization: `token ${CONFIG.token}`,
+                Accept: "application/vnd.github+json"
               }
-              
-              // Read the workbook using XLSX library
-              const wb = XLSX.read(bytes.buffer, { type: "array", cellDates: true });
-              
-              // Process sheets to update your webpage
-              processJRM(wb.Sheets["JRM"]);
-              processMetrics(wb.Sheets["Metrics"]);
-            } catch (e) {
-              console.error("Error loading updated Excel file:", e);
+            });
+            const fileData = await response.json();
+            const base64Content = fileData.content.replace(/\n/g, "");
+            // Convert Base64 to ArrayBuffer
+            const binaryString = atob(base64Content);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
             }
+            const wb = XLSX.read(bytes.buffer, { type: "array", cellDates: true });
+            processJRM(wb.Sheets["JRM"]);
+            processMetrics(wb.Sheets["Metrics"]);
+          } catch (e) {
+            console.error("Error loading updated Excel file:", e);
+          }
         }
-
 
         function processMetrics(sheet) {
           const raw = XLSX.utils.sheet_to_json(sheet, { header: 1 });
@@ -487,7 +536,7 @@
           if (!raw || raw.length < 2) return console.error("JRM sheet has no data.");
           state.jrmHeader = raw[0];
           state.jrmRows = raw.slice(1);
-          let cards = { jrm: [], estimates: [], approved: [], ofs: [] };
+          // Build the top filter and add form HTML for the JRM section
           let html = `<div class="container">
             <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
               <input type="text" id="searchInput" placeholder="Search by Intake ID, Name or Tags">
@@ -498,9 +547,25 @@
                 <option value="closed">Closed</option>
                 <option value="ofs">Out of Scope</option>
               </select>
+              <button id="addButton">Add</button>
               <button id="clearButton">Clear</button>
               <span id="counter">Intakes Count: 0</span>
+            </div>
+            <!-- Add New Intake Form (hidden by default) -->
+            <div id="addFormContainer" style="display:none;">
+              <h3>Add New Intake</h3>
+              <form id="addIntakeForm">
+                <label>Intake ID: <input type="text" name="intakeId" required></label>
+                <label>Intake Name: <input type="text" name="intakeName" required></label>
+                <label>Intake Comments: <input type="text" name="intakeComments"></label>
+                <label>Intake Tags: <input type="text" name="intakeTags"></label>
+                <label>Date: <input type="date" name="intakeDate" required></label>
+                <button type="submit">Submit</button>
+                <button type="button" id="cancelAdd">Cancel</button>
+              </form>
             </div>`;
+          // Process each row to create JRM cards
+          let cards = { jrm: [], estimates: [], approved: [], ofs: [] };
           state.jrmRows.forEach((row, idx) => {
             let [id = "", name = "", comments = "", tags = "", rawStatus = "", attach = "", date] = row,
               status = String(rawStatus).toLowerCase(),
@@ -538,6 +603,8 @@
             </div>
           </div>`;
           $("jrm-content").innerHTML = html;
+          
+          // Add event listeners for filtering
           on("#searchInput, #startDate, #endDate, #statusDropdown", "input", filterCards);
           $("clearButton").addEventListener("click", () => {
             $("searchInput").value = "";
@@ -549,6 +616,73 @@
           $("jrm-content").addEventListener("click", e => {
             if (e.target.classList.contains("view-link"))
               showData(e.target.getAttribute("data-intake-id"));
+          });
+          
+          // Add button to toggle the add form
+          $("addButton").addEventListener("click", () => {
+            const formContainer = $("addFormContainer");
+            formContainer.style.display = formContainer.style.display === "none" ? "block" : "none";
+          });
+          // Cancel button to hide add form
+          $("cancelAdd").addEventListener("click", () => {
+            $("addFormContainer").style.display = "none";
+          });
+          // Handle add intake form submission
+          $("addIntakeForm").addEventListener("submit", async function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            const newIntake = {
+              intakeId: formData.get("intakeId").trim(),
+              intakeName: formData.get("intakeName").trim(),
+              intakeComments: formData.get("intakeComments").trim(),
+              intakeTags: formData.get("intakeTags").trim(),
+              intakeDate: formData.get("intakeDate")
+            };
+            // Check if the intake ID already exists in the current state
+            let duplicate = state.jrmRows.some(row => row[0] && row[0].toString().trim() === newIntake.intakeId);
+            if (duplicate) {
+              alert("Intake ID already exists. Please use a unique Intake ID.");
+              return;
+            }
+            try {
+              await addNewIntakeToExcel(newIntake);
+              // Update local state: add the new row at the top
+              const newRow = [
+                newIntake.intakeId,
+                newIntake.intakeName,
+                newIntake.intakeComments,
+                newIntake.intakeTags,
+                "jrm",
+                "",
+                newIntake.intakeDate
+              ];
+              state.jrmRows.unshift(newRow);
+              // Update mappings for the new intake
+              const normId = normalizeID(newIntake.intakeId);
+              state.jrmNameMapping[normId] = newIntake.intakeName;
+              state.jrmDateMapping[normId] = newIntake.intakeDate;
+              // Create new card HTML and prepend it to the JRM column (after header)
+              const dispDate = new Date(newIntake.intakeDate).toLocaleDateString("en-US");
+              const newCardHtml = `<div id="card-ENT-${normId}" class="jrm-card" data-intake-id="${newIntake.intakeId}" data-intake-name="${newIntake.intakeName}" data-intake-tags="${newIntake.intakeTags}" data-intake-date="${newIntake.intakeDate}" data-status="jrm" data-closed="false">
+                <h3><a href="https://jira.cibcatl.com/browse/ENT-${normId}" target="_blank">ENT-${normId} - ${newIntake.intakeName}</a></h3>
+                <p><strong>Date:</strong> ${dispDate}</p>
+                <p><strong>Comments:</strong> ${newIntake.intakeComments}</p>
+                <p><strong>Tags:</strong> ${newIntake.intakeTags}</p>
+              </div>`;
+              const jrmCol = document.getElementById("jrm-col");
+              const header = jrmCol.querySelector("h2");
+              if(header){
+                header.insertAdjacentHTML("afterend", newCardHtml);
+              } else {
+                jrmCol.insertAdjacentHTML("afterbegin", newCardHtml);
+              }
+              // Hide the form and reset it
+              $("addFormContainer").style.display = "none";
+              this.reset();
+              filterCards(); // update the counter
+            } catch (err) {
+              alert("Failed to add new intake: " + err.message);
+            }
           });
           filterCards();
         }
