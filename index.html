@@ -861,8 +861,12 @@
               totals[i] += parseCur(cell);
               let formatted = (cell === "" || cell === null || isNaN(parseFloat(cell))) ? "-" :
                 hdr.includes("total effort days") ? cell :
-                (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs") || hdr.includes("et") || hdr.includes("other lines of business") || hdr.includes("lob sub-total") || hdr.includes("contingency")) ? "$" + parseFloat(cell).toLocaleString() :
-                (hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %")) ? parseFloat(cell).toFixed(2) + "%" : cell;
+                (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs") ||
+                 hdr.includes("et") || hdr.includes("other lines of business") ||
+                 hdr.includes("lob sub-total") || hdr.includes("contingency")) ? 
+                    "$" + parseFloat(cell).toLocaleString() :
+                (hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %") || hdr.match(/e%|c%/i)) ? 
+                    parseFloat(cell).toFixed(2) + "%" : cell;
               rowHTML += `<td data-col="${idx}" data-intake-id="${row[0]}">${formatted}</td>`;
             });
             rowHTML += `<td><button class="editBtn" data-intake-id="${row[0]}">Edit</button></td>`;
