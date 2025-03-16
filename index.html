@@ -223,8 +223,7 @@
             const updateData = await updateResponse.json();
             if (updateResponse.status === 200 || updateResponse.status === 201) {
               console.log(`Card ${intakeId} updated successfully in the Excel file.`);
-              // Refresh data to update UI if needed.
-              fetchData();
+              // Note: Removed fetchData() so the UI remains in its updated state.
             } else {
               if (retries > 0 && updateData.message && updateData.message.includes("does not match")) {
                 console.warn("SHA mismatch detected, retrying update...");
@@ -301,8 +300,7 @@
             const updateData = await updateResponse.json();
             if(updateResponse.status === 200 || updateResponse.status === 201){
               console.log(`New intake ${newIntake.intakeId} added successfully.`);
-              // Refresh data to update UI with the new card.
-              fetchData();
+              // Optionally update the UI locally if desired.
             } else {
               if(retries > 0 && updateData.message && updateData.message.includes("does not match")){
                 console.warn("SHA mismatch, retrying...");
@@ -369,7 +367,6 @@
             const updateData = await updateResponse.json();
             if (updateResponse.status === 200 || updateResponse.status === 201) {
               console.log(`Card ${intakeId} deleted successfully in the Excel file.`);
-              fetchData();
             } else {
               if (retries > 0 && updateData.message && updateData.message.includes("does not match")) {
                 console.warn("SHA mismatch detected, retrying deletion...");
@@ -409,8 +406,8 @@
               if(data[i][0] && data[i][0].toString().trim() === intakeId.toString().trim()){
                 // For each updated value, update the corresponding excel column.
                 for(let key in updatedValues) {
-                  let tableIdx = parseInt(key); // tableIdx from our rendered table (>=2)
-                  let excelIdx = tableIdx - 1; // shift because "Intake Name" was inserted at index 1 in the table
+                  let tableIdx = parseInt(key);
+                  let excelIdx = tableIdx - 1;
                   data[i][excelIdx] = updatedValues[key];
                 }
                 found = true;
@@ -476,7 +473,7 @@
             }
             card.setAttribute('data-status', newStatus);
             const intakeId = card.getAttribute('data-intake-id');
-            // Update Excel file and then re-run filterCards() to update UI if necessary.
+            // Update the Excel file in the background while the UI stays updated.
             updateCardStatusInExcel(intakeId, newStatus);
           }
         }
@@ -547,7 +544,7 @@
                 return o; 
               };
         
-        // UPDATED renderTable with inline editing functionality and updated tracker table logic.
+        // UPDATED renderTable with inline editing functionality.
         function renderTable(container, fixed, indices, title, start, end) {
           const isET = title === "Metrics for ET";
           const currencyColumns = ["et", "other lines of business", "total ongoing costs", "lob sub-total", "contingency"];
