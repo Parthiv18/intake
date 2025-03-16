@@ -556,10 +556,11 @@
             const id = normalizeID(row[0]);
             row.splice(1, 0, state.jrmNameMapping[id] || "");
           });
+          // Build metric options and mapping using lowercase keys
           state.tableHeaders.forEach((hdr, i) => {
             if (!["Intake ID", "Intake Name"].includes(hdr)) {
               state.metricOptions.push(hdr);
-              state.metricMapping[hdr] = i;
+              state.metricMapping[hdr.toLowerCase()] = i;
             }
           });
           $("total-content").innerHTML = `
@@ -915,7 +916,8 @@
         
         function updateChartAndTable(metric) {
           $("chart-container").classList.remove("hidden");
-          const col = state.metricMapping[metric],
+          // Use lowercase metric key to look up in state.metricMapping
+          const col = state.metricMapping[metric.toLowerCase()],
                 start = $("startDateTotal").value,
                 end = $("endDateTotal").value,
                 filtered = state.metricsRows.filter(row => {
