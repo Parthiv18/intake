@@ -116,9 +116,34 @@
       }
       #addFormContainer label { display: block; margin: 5px 0; }
       #addFormContainer input { margin-left: 10px; }
+
+      /* Workflow Modal Styles */
+      #workflowModal {
+        display: none;
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background: rgba(0,0,0,0.5);
+        z-index: 3000;
+      }
+      #workflowModal .modal-content {
+        position: absolute;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        background: #fff;
+        padding: 20px;
+        border-radius: 4px;
+      }
     </style>
   </head>
   <body>
+    <!-- Workflow Modal -->
+    <div id="workflowModal">
+      <div class="modal-content">
+        <p>Workflow in process</p>
+      </div>
+    </div>
+
     <div id="sidebar">
       <button id="jrmBtn">JRM</button>
       <button id="totalBtn">ESTIMATES</button>
@@ -144,12 +169,55 @@
         token: "%%MY_GITHUB_TOKEN%%",     // Replace with your GitHub token
         path: "Intake_Database.xlsx"
       };
+      // Global variable to track workflow status
+      let workflowInProcess = false;
     </script>
     
     <script>
       (function() {
+        // ----- Workflow Status Polling & Modal Management -----
+        function showWorkflowModal() {
+          document.getElementById('workflowModal').style.display = "block";
+        }
+        function hideWorkflowModal() {
+          document.getElementById('workflowModal').style.display = "none";
+        }
+        function pollWorkflowStatus() {
+          setInterval(async () => {
+            try {
+              const url = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/actions/runs?status=in_progress`;
+              const response = await fetch(url, {
+                headers: {
+                  Authorization: `token ${CONFIG.token}`,
+                  Accept: "application/vnd.github+json"
+                }
+              });
+              const data = await response.json();
+              if (data.total_count > 0) {
+                workflowInProcess = true;
+                showWorkflowModal();
+              } else {
+                workflowInProcess = false;
+                hideWorkflowModal();
+              }
+            } catch(e) {
+              console.error("Error checking workflow status", e);
+            }
+          }, 10000); // Poll every 10 seconds
+        }
+
+        // Helper function to block actions if workflow is running.
+        function blockIfWorkflowInProcess() {
+          if (workflowInProcess) {
+            alert("Workflow in process");
+            return true;
+          }
+          return false;
+        }
+        
         // ----- GitHub Excel Update Functions -----
         async function updateCardStatusInExcel(intakeId, newStatus, retries = 3) {
+          if(blockIfWorkflowInProcess()) return;
           console.log(`Updating card ${intakeId} to status ${newStatus}...`);
           try {
             const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
@@ -215,6 +283,7 @@
         }
         
         async function addNewIntakeToExcel(newIntake, retries = 3) {
+          if(blockIfWorkflowInProcess()) return;
           try {
             const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
             const getResponse = await fetch(getUrl, {
@@ -287,6 +356,7 @@
         }
         
         async function deleteCardFromExcel(intakeId, retries = 3) {
+          if(blockIfWorkflowInProcess()) return;
           console.log(`Deleting card ${intakeId}...`);
           try {
             const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
@@ -353,6 +423,7 @@
         
         // NEW: Update Metrics Row Function
         async function updateMetricsRowInExcel(intakeId, updatedValues, retries = 3) {
+          if(blockIfWorkflowInProcess()) return;
           console.log(`Updating Metrics row for ${intakeId}...`);
           try {
             const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
@@ -375,9 +446,10 @@
             let found = false;
             for(let i = 1; i < data.length; i++){
               if(data[i][0] && data[i][0].toString().trim() === intakeId){
+                // For each updated value, update the corresponding excel column.
                 for(let key in updatedValues) {
-                  let tableIdx = parseInt(key);
-                  let excelIdx = tableIdx - 1;
+                  let tableIdx = parseInt(key); // tableIdx from our rendered table (>=2)
+                  let excelIdx = tableIdx - 1; // shift because "Intake Name" was inserted at index 1 in the table
                   data[i][excelIdx] = updatedValues[key];
                 }
                 found = true;
@@ -429,6 +501,7 @@
         document.addEventListener('click', hideContextMenu);
         
         function moveCard(card, newStatus) {
+          if(blockIfWorkflowInProcess()) return;
           let container;
           if (newStatus === 'jrm') container = document.getElementById('jrm-col');
           else if (newStatus === 'estimates') container = document.getElementById('estimates-col');
@@ -676,6 +749,7 @@
               showData(e.target.getAttribute("data-intake-id"));
           });
           $("addButton").addEventListener("click", () => {
+            if(blockIfWorkflowInProcess()) return;
             const formContainer = $("addFormContainer");
             formContainer.style.display = formContainer.style.display === "none" ? "block" : "none";
           });
@@ -684,6 +758,7 @@
           });
           $("addIntakeForm").addEventListener("submit", async function(e) {
             e.preventDefault();
+            if(blockIfWorkflowInProcess()) return;
             const formData = new FormData(this);
             const newIntake = {
               intakeId: formData.get("intakeId").trim(),
@@ -804,7 +879,7 @@
           });
         }
         
-        // UPDATED renderTable with Total Tracker on the side and Edit button
+        // UPDATED renderTable with Edit button and inline editing functionality
         function renderTable(container, fixed, indices, title, start, end) {
           const isET = title === "Metrics for ET";
           let totals = Array(indices.length).fill(0);
@@ -843,43 +918,7 @@
           });
           totalRow += `<td></td>`;
           tableHTML += totalRow + "</tbody></table>";
-          
-          // Compute the tracker (total) table to be shown on the side.
           let trackerHTML = "";
-          if (isET) {
-            let etIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "et"),
-                otherIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "other lines of business"),
-                grandTotal = 0;
-            state.metricsRows.forEach(row => {
-              const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
-              if (!inRange(dt, start, end)) return;
-              grandTotal += parseCur(row[etIdx]) + parseCur(row[otherIdx]);
-            });
-            trackerHTML = `<h3>Total</h3>
-              <table class="modern-table">
-                <tr><th>Metric</th><th>Total</th></tr>
-                <tr><td>Grand Total</td><td>${fmtCur(grandTotal)}</td></tr>
-              </table>`;
-          } else {
-            const totObj = { totalEffortDays: 0, tc: 0, ePerc: 0, cPerc: 0 };
-            indices.forEach((idx, i) => {
-              const hdr = state.tableHeaders[idx].toLowerCase().trim();
-              let val = totals[i];
-              if (hdr.includes("total effort days")) totObj.totalEffortDays += val;
-              else if (hdr.includes("tc") || hdr.includes("total costs")) totObj.tc += val;
-              if (hdr.endsWith("e%")) totObj.ePerc += val < 1 ? val * 100 : val;
-              else if (hdr.endsWith("c%")) totObj.cPerc += val < 1 ? val * 100 : val;
-            });
-            trackerHTML = `<h3>Total</h3>
-              <table class="modern-table">
-                <tr><th>Metric</th><th>Total</th></tr>
-                <tr><td>Total Effort Days</td><td>${totObj.totalEffortDays.toLocaleString()}</td></tr>
-                <tr><td>Total Cost</td><td>${fmtCur(totObj.tc)}</td></tr>
-                <tr><td>Effort %</td><td>${totObj.ePerc.toFixed(2)}%</td></tr>
-                <tr><td>Cost %</td><td>${totObj.cPerc.toFixed(2)}%</td></tr>
-              </table>`;
-          }
-          
           container.innerHTML = `<div style="display:flex;gap:20px;">
             <div style="flex:3;max-height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:10px;">${tableHTML}</div>
             <div style="flex:1;max-height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:10px;">${trackerHTML}</div>
@@ -891,6 +930,7 @@
         
         // Inline editing event handlers
         function handleEditClick(event) {
+          if(blockIfWorkflowInProcess()) return;
           const btn = event.target;
           const tr = btn.closest("tr");
           const intakeId = btn.getAttribute("data-intake-id");
@@ -910,6 +950,7 @@
         }
         
         function handleSaveClick(event) {
+          if(blockIfWorkflowInProcess()) return;
           const btn = event.target;
           const tr = btn.closest("tr");
           const intakeId = btn.getAttribute("data-intake-id");
@@ -1129,6 +1170,7 @@
           $("exportAllBtn").addEventListener("click", exportAll);
           fetchData();
           showSection("jrm-content");
+          pollWorkflowStatus();  // Start polling for workflow status
         }
         
         document.addEventListener("DOMContentLoaded", init);
