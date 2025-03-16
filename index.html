@@ -223,7 +223,7 @@
             const updateData = await updateResponse.json();
             if (updateResponse.status === 200 || updateResponse.status === 201) {
               console.log(`Card ${intakeId} updated successfully in the Excel file.`);
-              // Note: Removed fetchData() so the UI remains in its updated state.
+              // No re-fetch here so UI remains immediately updated.
             } else {
               if (retries > 0 && updateData.message && updateData.message.includes("does not match")) {
                 console.warn("SHA mismatch detected, retrying update...");
@@ -299,8 +299,8 @@
             });
             const updateData = await updateResponse.json();
             if(updateResponse.status === 200 || updateResponse.status === 201){
-              console.log(`New intake ${newIntake.intakeId} added successfully.`);
-              // Optionally update the UI locally if desired.
+              console.log(`New intake ${newIntake.intakeId} added successfully in the Excel file.`);
+              // No re-fetch so that UI stays updated.
             } else {
               if(retries > 0 && updateData.message && updateData.message.includes("does not match")){
                 console.warn("SHA mismatch, retrying...");
@@ -404,7 +404,6 @@
             let found = false;
             for(let i = 1; i < data.length; i++){
               if(data[i][0] && data[i][0].toString().trim() === intakeId.toString().trim()){
-                // For each updated value, update the corresponding excel column.
                 for(let key in updatedValues) {
                   let tableIdx = parseInt(key);
                   let excelIdx = tableIdx - 1;
@@ -473,7 +472,6 @@
             }
             card.setAttribute('data-status', newStatus);
             const intakeId = card.getAttribute('data-intake-id');
-            // Update the Excel file in the background while the UI stays updated.
             updateCardStatusInExcel(intakeId, newStatus);
           }
         }
@@ -544,7 +542,6 @@
                 return o; 
               };
         
-        // UPDATED renderTable with inline editing functionality.
         function renderTable(container, fixed, indices, title, start, end) {
           const isET = title === "Metrics for ET";
           const currencyColumns = ["et", "other lines of business", "total ongoing costs", "lob sub-total", "contingency"];
@@ -1069,10 +1066,11 @@
             const formContainer = $("addFormContainer");
             formContainer.style.display = formContainer.style.display === "none" ? "block" : "none";
           });
+          // Updated Add New Intake: Immediately update the UI before processing the GitHub update.
           $("cancelAdd").addEventListener("click", () => {
             $("addFormContainer").style.display = "none";
           });
-          $("addIntakeForm").addEventListener("submit", async function(e) {
+          $("addIntakeForm").addEventListener("submit", function(e) {
             e.preventDefault();
             const formData = new FormData(this);
             const newIntake = {
@@ -1082,6 +1080,7 @@
               intakeTags: formData.get("intakeTags").trim(),
               intakeDate: formData.get("intakeDate")
             };
+            // Check for duplicate locally
             let duplicate = state.jrmRows.some(row => {
               let existingId = normalizeID(row[0]);
               let newId = normalizeID(newIntake.intakeId);
@@ -1091,13 +1090,43 @@
               alert("Intake ID already exists. Please use a unique Intake ID.");
               return;
             }
-            try {
-              await addNewIntakeToExcel(newIntake);
-              this.reset();
-              $("addFormContainer").style.display = "none";
-            } catch (err) {
-              alert("Failed to add new intake: " + err.message);
+            // Immediately update local state and UI:
+            const newRow = [
+              newIntake.intakeId,
+              newIntake.intakeName,
+              newIntake.intakeComments,
+              newIntake.intakeTags,
+              "jrm",
+              "",
+              newIntake.intakeDate
+            ];
+            state.jrmRows.unshift(newRow);
+            let normId = normalizeID(newIntake.intakeId);
+            state.jrmNameMapping[normId] = newIntake.intakeName;
+            state.jrmDateMapping[normId] = newIntake.intakeDate;
+            const dispDate = new Date(newIntake.intakeDate).toLocaleDateString("en-US");
+            const newCardHtml = `<div id="card-ENT-${normId}" class="jrm-card" data-intake-id="${newIntake.intakeId}" data-intake-name="${newIntake.intakeName}" data-intake-tags="${newIntake.intakeTags}" data-intake-date="${newIntake.intakeDate}" data-status="jrm" data-closed="false">
+              <h3><a href="https://jira.cibcatl.com/browse/ENT-${normId}" target="_blank">ENT-${normId} - ${newIntake.intakeName}</a></h3>
+              <p><strong>Date:</strong> ${dispDate}</p>
+              <p><strong>Comments:</strong> ${newIntake.intakeComments}</p>
+              <p><strong>Tags:</strong> ${newIntake.intakeTags}</p>
+            </div>`;
+            // Insert the new card immediately
+            const jrmCol = document.getElementById("jrm-col");
+            const header = jrmCol.querySelector("h2");
+            if(header){
+              header.insertAdjacentHTML("afterend", newCardHtml);
+            } else {
+              jrmCol.insertAdjacentHTML("afterbegin", newCardHtml);
             }
+            // Optionally, update filter if needed.
+            filterCards();
+            this.reset();
+            $("addFormContainer").style.display = "none";
+            // Process the GitHub update in the background.
+            addNewIntakeToExcel(newIntake).catch(err => {
+              alert("Failed to add new intake to Excel: " + err.message);
+            });
           });
           filterCards();
         }
