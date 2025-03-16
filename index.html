@@ -936,37 +936,52 @@
         }
         
         function updateDisciplineTables() {
-          const container = $("discipline-tables-container"),
-                start = $("startDateTotal").value,
-                end = $("endDateTotal").value;
-          if (!OTHER.some(d => $(d + "Checkbox")?.checked)) {
-            const fixed = ["Intake ID", "Intake Name"],
-                  indices = [];
+            const container = $("discipline-tables-container"),
+                    start = $("startDateTotal").value,
+                    end = $("endDateTotal").value;
+            if (!OTHER.some(d => $(d + "Checkbox")?.checked)) {
+                const desired = [
+                "Intake ID", 
+                "Intake Name", 
+                "ET", 
+                "Other Lines of Business", 
+                "Total Ongoing Costs", 
+                "LOB Sub-Total", 
+                "Contingency"
+                ];
+                const fixed = [];
+                const indices = [];
+                desired.forEach(header => {
+                const idx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === header.trim().toLowerCase());
+                if (idx > -1) {
+                    fixed.push(state.tableHeaders[idx]);
+                    indices.push(idx);
+                }
+                });
+                if (!indices.length) {
+                return container.innerHTML = "";
+                }
+                renderTable(container, fixed, indices, "Metrics", start, end);
+                return;
+            }
+            
+            // Existing code when checkboxes are selected remains unchanged:
+            const checked = OTHER.filter(d => $(d + "Checkbox")?.checked),
+                    fixed = ["Intake ID", "Intake Name"],
+                    indices = [];
             for (let i = 2; i < state.tableHeaders.length; i++) {
-              fixed.push(state.tableHeaders[i]);
-              indices.push(i);
+                const hdr = state.tableHeaders[i].toLowerCase().trim();
+                if (checked.map(d => dp[d]).some(p => hdr.includes(p))) {
+                fixed.push(state.tableHeaders[i]);
+                indices.push(i);
+                }
             }
             if (!indices.length) {
-              return container.innerHTML = "";
+                return container.innerHTML = "";
             }
-            renderTable(container, fixed, indices, "Metrics", start, end);
-            return;
-          }
-          const checked = OTHER.filter(d => $(d + "Checkbox")?.checked),
-                fixed = ["Intake ID", "Intake Name"],
-                indices = [];
-          for (let i = 2; i < state.tableHeaders.length; i++) {
-            const hdr = state.tableHeaders[i].toLowerCase().trim();
-            if (checked.map(d => dp[d]).some(p => hdr.includes(p))) {
-              fixed.push(state.tableHeaders[i]);
-              indices.push(i);
-            }
-          }
-          if (!indices.length) {
-            return container.innerHTML = "";
-          }
-          renderTable(container, fixed, indices, `Metrics for ${checked.map(d => d.toUpperCase()).join(", ")}`, start, end);
+            renderTable(container, fixed, indices, `Metrics for ${checked.map(d => d.toUpperCase()).join(", ")}`, start, end);
         }
+
         
         function updateMetricSelect() {
           const sel = $("metric");
