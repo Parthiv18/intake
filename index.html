@@ -540,7 +540,7 @@
                 return o; 
               };
         
-        // UPDATED renderTable with inline editing functionality and currency formatting for specific columns
+        // UPDATED renderTable with inline editing functionality and updated formatting for Total Effort Days
         function renderTable(container, fixed, indices, title, start, end) {
           const isET = title === "Metrics for ET";
           // list of columns to be formatted as currency
@@ -565,8 +565,9 @@
               } else if (currencyColumns.includes(hdr)) {
                 formatted = fmtCur(parseCur(cell));
               } else if (hdr.includes("total effort days")) {
-                formatted = cell;
-              } else if (hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %")) {
+                // Plain number with no extra characters
+                formatted = parseCur(cell).toString();
+              } else if (hdr.endsWith("%") || ((hdr.includes("effort") && !hdr.includes("total effort days")) || hdr.includes("cost %"))) {
                 formatted = parseFloat(cell).toFixed(2) + "%";
               } else if (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs")) {
                 formatted = fmtCur(parseCur(cell));
@@ -587,7 +588,9 @@
               fTot = fmtCur(totals[i]);
             } else if (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs")) {
               fTot = fmtCur(totals[i]);
-            } else if (hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %")) {
+            } else if (hdr.includes("total effort days")) {
+              fTot = totals[i].toLocaleString();
+            } else if (hdr.endsWith("%") || ((hdr.includes("effort") && !hdr.includes("total effort days")) || hdr.includes("cost %"))) {
               fTot = totals[i].toFixed(2) + "%";
             } else {
               fTot = totals[i].toLocaleString();
