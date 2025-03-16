@@ -114,8 +114,22 @@
         border-radius: 4px; 
         margin-bottom: 15px;
       }
-      #addFormContainer label { display: block; margin: 5px 0; }
-      #addFormContainer input { margin-left: 10px; }
+      /* Updated form styling for horizontal layout */
+      #addIntakeForm {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      #addIntakeForm label {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        margin: 0;
+      }
+      #addIntakeForm input {
+        padding: 4px;
+      }
     </style>
   </head>
   <body>
@@ -622,6 +636,7 @@
               <button id="clearButton">Clear</button>
               <span id="counter">Intakes Count: 0</span>
             </div>
+            <!-- Updated horizontal add intake form -->
             <div id="addFormContainer" style="display:none;">
               <h3>Add New Intake</h3>
               <form id="addIntakeForm">
@@ -997,7 +1012,7 @@
               .map(d => d === "aoto" ? "ao/to" : d),
             opts = selected.length
               ? state.metricOptions.filter(opt => selected.some(d => opt.toLowerCase().includes(d)))
-              : state.metricOptions.filter(opt => ["et", "other lines of business", "lob sub-total", "contingency"].includes(opt.trim().toLowerCase()));
+              : state.metricOptions.filter(opt => ["et", "other lines of business", "lob sub- total", "contingency"].includes(opt.trim().toLowerCase()));
           opts.forEach(opt => sel.appendChild(createOption(opt, opt)));
           sel.onchange = () => { updateChartAndTable(sel.value); updateDisciplineTables(); };
           opts.length ? updateChartAndTable(opts[0]) : ($("chart-container").innerHTML = "");
