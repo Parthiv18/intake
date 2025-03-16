@@ -4,13 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1.0" />
     <title>Intake Pipeline</title>
-    <link
-      rel="icon"
-      href="https://cdn.brandfetch.io/idQbNDKa7o/theme/dark/symbol.svg?c=1bx1742335544623id64Mup7acmj3isyyG&t=1683555048490"
-    />
+    <link rel="icon" href="https://cdn.brandfetch.io/idQbNDKa7o/theme/dark/symbol.svg?c=1bx1742335544623id64Mup7acmj3isyyG&t=1683555048490" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://code.highcharts.com/highcharts.js"></script>
     <style>
+      /* (styles unchanged) */
       *, *::before, *::after { box-sizing: border-box; }
       body {
         margin: 0;
@@ -148,12 +146,12 @@
     
     <script>
       (function() {
-        // Helper function for delay (exponential backoff can be implemented here)
+        // Helper function for delay with a randomized component
         const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-        // ----- Updated GitHub Excel Update Functions with Retry and Delay -----
+        // ----- Updated GitHub Excel Update Functions with Increased Retries and Random Delays -----
         async function updateCardStatusInExcel(intakeId, newStatus) {
-          let retries = 3;
+          let retries = 10; // Increase number of retries
           while (retries > 0) {
             try {
               const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
@@ -210,7 +208,8 @@
                 if (updateData.message && updateData.message.includes("does not match")) {
                   console.warn("SHA mismatch detected, retrying update...");
                   retries--;
-                  await delay(1000);
+                  // Random delay between 1 and 2 seconds
+                  await delay(1000 + Math.floor(Math.random() * 1000));
                 } else {
                   throw new Error("Error updating file: " + updateData.message);
                 }
@@ -297,7 +296,7 @@
         }
 
         async function deleteCardFromExcel(intakeId) {
-          let retries = 3;
+          let retries = 10; // Increase retries here as well
           while (retries > 0) {
             try {
               const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
@@ -326,7 +325,9 @@
                 }
               }
               if (!found) {
-                throw new Error("Intake ID not found in the Excel file.");
+                // If the card is already gone, consider it a success.
+                console.log("Intake ID already deleted.");
+                return;
               }
               const newSheet = XLSX.utils.aoa_to_sheet(data);
               workbook.Sheets[sheetName] = newSheet;
@@ -354,7 +355,7 @@
                 if (updateData.message && updateData.message.includes("does not match")) {
                   console.warn("SHA mismatch detected, retrying deletion...");
                   retries--;
-                  await delay(1000);
+                  await delay(1000 + Math.floor(Math.random() * 1000));
                 } else {
                   throw new Error("Error updating file: " + updateData.message);
                 }
