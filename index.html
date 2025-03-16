@@ -142,7 +142,7 @@
         repo: "intake",       // Replace with your repository name
         branch: "main",
         token: "%%MY_GITHUB_TOKEN%%",     // Replace with your GitHub token
-        path: "Intake_Database.xlsx"
+        path: "Intake_Database.xlsm"
       };
     </script>
     
@@ -1088,11 +1088,7 @@
         }
         
         function init() {
-          $("totalBtn").addEventListener("click", () => {
-  showSection("total-content");
-  updateDisciplineTables();
-});
-
+          $("totalBtn").addEventListener("click", () => showSection("total-content"));
           $("jrmBtn").addEventListener("click", () => showSection("jrm-content"));
           $("definitionBtn").addEventListener("click", () => window.open("https://cibc-my.sharepoint.com/:p:/p/peter_crescenzi/EfCWJ1Wz92JNvCgEewJyQv4BJVVJKxSRmWz6IwjROaDNNA?e=CND6ej", "_blank"));
           $("exportAllBtn").addEventListener("click", exportAll);
