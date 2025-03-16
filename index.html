@@ -257,7 +257,6 @@
             let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
             
             let intakeIdNormalized = newIntake.intakeId.toString().trim();
-            // Check duplicate using normalized value
             let duplicate = state.jrmRows.some(row => {
               let existingId = normalizeID(row[0]);
               let newId = normalizeID(newIntake.intakeId);
@@ -377,7 +376,6 @@
           }
         }
         
-        // NEW: Update Metrics Row Function
         async function updateMetricsRowInExcel(intakeId, updatedValues, retries = 3) {
           console.log(`Updating Metrics row for ${intakeId}...`);
           try {
@@ -401,10 +399,9 @@
             let found = false;
             for(let i = 1; i < data.length; i++){
               if(data[i][0] && data[i][0].toString().trim() === intakeId){
-                // For each updated value, update the corresponding excel column.
                 for(let key in updatedValues) {
-                  let tableIdx = parseInt(key); // tableIdx from our rendered table (>=2)
-                  let excelIdx = tableIdx - 1; // shift because "Intake Name" was inserted at index 1 in the table
+                  let tableIdx = parseInt(key);
+                  let excelIdx = tableIdx - 1;
                   data[i][excelIdx] = updatedValues[key];
                 }
                 found = true;
@@ -509,7 +506,7 @@
           }
         });
         
-        // ----- Existing Data Fetching & Processing Code -----
+        // ----- Data Fetching & Processing Code -----
         const OTHER = ["ba", "qa", "aoto", "pmo", "dev"],
               dp = { et: "et", ba: "et-ba", qa: "et-qa", aoto: "ao/to", pmo: "pmo", dev: "et-dev" },
               state = {
@@ -643,7 +640,6 @@
               <button id="clearButton">Clear</button>
               <span id="counter">Intakes Count: 0</span>
             </div>
-            <!-- Updated horizontal add intake form -->
             <div id="addFormContainer" style="display:none;">
               <h3>Add New Intake</h3>
               <form id="addIntakeForm">
@@ -659,7 +655,6 @@
           let cards = { jrm: [], estimates: [], approved: [], ofs: [] };
           state.jrmRows.forEach((row, idx) => {
             let [id = "", name = "", comments = "", tags = "", rawStatus = "", attach = "", date] = row;
-            // Convert the date from Excel serial (if needed) to a proper Date object
             date = convertExcelDate(date);
             let status = String(rawStatus).toLowerCase(),
                 dispDate = date instanceof Date ? date.toLocaleDateString("en-US") : date,
@@ -725,7 +720,6 @@
               intakeTags: formData.get("intakeTags").trim(),
               intakeDate: formData.get("intakeDate")
             };
-            // Use normalizeID for duplicate check so ENT- prefix is ignored.
             let duplicate = state.jrmRows.some(row => {
               let existingId = normalizeID(row[0]);
               let newId = normalizeID(newIntake.intakeId);
@@ -842,9 +836,10 @@
           });
         }
         
-        // UPDATED renderTable with Edit button and inline editing functionality
+        // UPDATED renderTable with currency formatting for specific columns and total row updates
         function renderTable(container, fixed, indices, title, start, end) {
           const isET = title === "Metrics for ET";
+          const currencyCols = ["et", "other lines of business", "total ongoing costs", "lob sub-total", "contingency"];
           let totals = Array(indices.length).fill(0);
           let tableHTML = `<h3>${title}</h3>
             <table class="modern-table">
@@ -860,21 +855,11 @@
               const cell = row[idx], hdr = state.tableHeaders[idx].toLowerCase().trim();
               totals[i] += parseCur(cell);
               let formatted =
-                (cell === "" || cell === null || isNaN(parseFloat(cell)))
-                  ? "-"
-                  : hdr.includes("total effort days")
-                  ? cell
-                  : (hdr.includes("cost") ||
-                    hdr.endsWith("tc") ||
-                    hdr.includes("total costs") ||
-                    isET ||
-                    ["et", "other lines of business", "total ongoing costs", "lob sub-total", "contingency"].includes(hdr.toLowerCase()))
-                    ? fmtCur(parseFloat(cell))
-                    : (hdr.endsWith("%") ||
-                      hdr.includes("effort") ||
-                      hdr.includes("cost %"))
-                    ? parseFloat(cell).toFixed(2) + "%"
-                    : cell;
+                (cell === "" || cell === null || isNaN(parseFloat(cell))) ? "-" :
+                hdr.includes("total effort days") ? cell :
+                (currencyCols.includes(hdr)) ? fmtCur(parseFloat(cell)) :
+                (hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %")) ? parseFloat(cell).toFixed(2) + "%" :
+                cell;
               rowHTML += `<td data-col="${idx}" data-intake-id="${row[0]}">${formatted}</td>`;
             });
             rowHTML += `<td><button class="editBtn" data-intake-id="${row[0]}">Edit</button></td>`;
@@ -885,10 +870,11 @@
           indices.forEach((_, i) => {
             const hdr = state.tableHeaders[indices[i]].toLowerCase().trim();
             let fTot = totals[i].toLocaleString();
-            if (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs") || isET)
+            if (currencyCols.includes(hdr)) {
               fTot = fmtCur(totals[i]);
-            else if ((hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %")) && !hdr.includes("total effort days"))
+            } else if ((hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %")) && !hdr.includes("total effort days")) {
               fTot = totals[i].toFixed(2) + "%";
+            }
             totalRow += `<td><strong>${fTot}</strong></td>`;
           });
           totalRow += `<td></td>`;
@@ -982,39 +968,6 @@
             alert("Failed to update Metrics row: " + err.message);
             updateDisciplineTables();
           });
-        }
-        
-        function updateDisciplineTables() {
-          const container = $("discipline-tables-container"),
-                start = $("startDateTotal").value,
-                end = $("endDateTotal").value;
-          if (!OTHER.some(d => $(d + "Checkbox")?.checked)) {
-            const fixed = ["Intake ID", "Intake Name"],
-                  indices = [];
-            for (let i = 2; i < state.tableHeaders.length; i++) {
-              fixed.push(state.tableHeaders[i]);
-              indices.push(i);
-            }
-            if (!indices.length) {
-              return container.innerHTML = "";
-            }
-            renderTable(container, fixed, indices, "Metrics", start, end);
-            return;
-          }
-          const checked = OTHER.filter(d => $(d + "Checkbox")?.checked),
-                fixed = ["Intake ID", "Intake Name"],
-                indices = [];
-          for (let i = 2; i < state.tableHeaders.length; i++) {
-            const hdr = state.tableHeaders[i].toLowerCase().trim();
-            if (checked.map(d => dp[d]).some(p => hdr.includes(p))) {
-              fixed.push(state.tableHeaders[i]);
-              indices.push(i);
-            }
-          }
-          if (!indices.length) {
-            return container.innerHTML = "";
-          }
-          renderTable(container, fixed, indices, `Metrics for ${checked.map(d => d.toUpperCase()).join(", ")}`, start, end);
         }
         
         function updateMetricSelect() {
