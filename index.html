@@ -257,10 +257,14 @@
             let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
             
             let intakeIdNormalized = newIntake.intakeId.toString().trim();
-            for(let i = 1; i < data.length; i++){
-              if(data[i][0] && data[i][0].toString().trim() === intakeIdNormalized){
-                throw new Error("Intake ID already exists.");
-              }
+            // Check duplicate using normalized value
+            let duplicate = state.jrmRows.some(row => {
+              let existingId = normalizeID(row[0]);
+              let newId = normalizeID(newIntake.intakeId);
+              return existingId === newId;
+            });
+            if (duplicate) {
+              throw new Error("Intake ID already exists. Please use a unique Intake ID.");
             }
             
             const newRow = [
@@ -525,7 +529,10 @@
               on = (sel, evt, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(evt, fn)),
               fmtCur = num => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(num),
               parseCur = val => typeof val === "string" ? parseFloat(val.replace(/[^0-9.-]+/g, "")) || 0 : Number(val) || 0,
-              normalizeID = id => (id = String(id || "").trim(), id.toUpperCase().startsWith("ENT-") ? id.slice(4) : id),
+              normalizeID = id => {
+                id = String(id || "").trim();
+                return id.toUpperCase().startsWith("ENT-") ? id.slice(4) : id;
+              },
               inRange = (dt, s, e) => (!s || dt >= s) && (!e || dt <= e),
               createOption = (val, text) => { 
                 const o = document.createElement("option"); 
@@ -718,7 +725,12 @@
               intakeTags: formData.get("intakeTags").trim(),
               intakeDate: formData.get("intakeDate")
             };
-            let duplicate = state.jrmRows.some(row => row[0] && row[0].toString().trim() === newIntake.intakeId);
+            // Use normalizeID for duplicate check so ENT- prefix is ignored.
+            let duplicate = state.jrmRows.some(row => {
+              let existingId = normalizeID(row[0]);
+              let newId = normalizeID(newIntake.intakeId);
+              return existingId === newId;
+            });
             if (duplicate) {
               alert("Intake ID already exists. Please use a unique Intake ID.");
               return;
@@ -1012,7 +1024,7 @@
               .map(d => d === "aoto" ? "ao/to" : d),
             opts = selected.length
               ? state.metricOptions.filter(opt => selected.some(d => opt.toLowerCase().includes(d)))
-              : state.metricOptions.filter(opt => ["et", "other lines of business", "lob sub- total", "contingency"].includes(opt.trim().toLowerCase()));
+              : state.metricOptions.filter(opt => ["et", "other lines of business", "lob sub-total", "contingency"].includes(opt.trim().toLowerCase()));
           opts.forEach(opt => sel.appendChild(createOption(opt, opt)));
           sel.onchange = () => { updateChartAndTable(sel.value); updateDisciplineTables(); };
           opts.length ? updateChartAndTable(opts[0]) : ($("chart-container").innerHTML = "");
