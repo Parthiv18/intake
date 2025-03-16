@@ -848,12 +848,14 @@
           let totals = Array(indices.length).fill(0);
           let tableHTML = `<h3>${title}</h3>
             <table class="modern-table">
-              <thead><tr>${fixed.map(h => `<th>${h}</th>`).join("")}</tr></thead>
+              <thead><tr>${fixed.map(h => `<th>${h}</th>`).join("")}<th>Actions</th></tr></thead>
               <tbody>`;
           state.metricsRows.forEach(row => {
             const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
             if (!inRange(dt, start, end)) return;
-            let rowHTML = `<tr><td>${row[0]}</td><td>${row[1]}</td>`;
+            let rowHTML = `<tr>
+              <td>${row[0]}</td>
+              <td>${row[1]}</td>`;
             indices.forEach((idx, i) => {
               const cell = row[idx], hdr = state.tableHeaders[idx].toLowerCase().trim();
               totals[i] += parseCur(cell);
@@ -861,9 +863,11 @@
                 hdr.includes("total effort days") ? cell :
                 (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs") || isET) ? "$" + cell :
                 (hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %")) ? parseFloat(cell).toFixed(2) + "%" : cell;
-              rowHTML += `<td>${formatted}</td>`;
+              rowHTML += `<td data-col="${idx}" data-intake-id="${row[0]}">${formatted}</td>`;
             });
-            tableHTML += rowHTML + "</tr>";
+            rowHTML += `<td><button class="editBtn" data-intake-id="${row[0]}">Edit</button></td>`;
+            rowHTML += "</tr>";
+            tableHTML += rowHTML;
           });
           let totalRow = `<tr><td colspan="2"><strong>Total</strong></td>`;
           indices.forEach((_, i) => {
@@ -875,7 +879,7 @@
               fTot = totals[i].toFixed(2) + "%";
             totalRow += `<td><strong>${fTot}</strong></td>`;
           });
-          totalRow += "</tr>";
+          totalRow += `<td></td>`;
           tableHTML += totalRow + "</tbody></table>";
           let trackerHTML = "";
           if (isET) {
