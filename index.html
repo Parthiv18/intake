@@ -142,7 +142,7 @@
         repo: "intake",       // Replace with your repository name
         branch: "main",
         token: "%%MY_GITHUB_TOKEN%%",     // Replace with your GitHub token
-        path: "Intake_Database.xlsm"
+        path: "Intake_Database.xlsx"
       };
     </script>
     
@@ -811,14 +811,12 @@
           let totals = Array(indices.length).fill(0);
           let tableHTML = `<h3>${title}</h3>
             <table class="modern-table">
-              <thead><tr>${fixed.map(h => `<th>${h}</th>`).join("")}<th>Actions</th></tr></thead>
+              <thead><tr>${fixed.map(h => `<th>${h}</th>`).join("")}</tr></thead>
               <tbody>`;
           state.metricsRows.forEach(row => {
             const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
             if (!inRange(dt, start, end)) return;
-            let rowHTML = `<tr>
-              <td>${row[0]}</td>
-              <td>${row[1]}</td>`;
+            let rowHTML = `<tr><td>${row[0]}</td><td>${row[1]}</td>`;
             indices.forEach((idx, i) => {
               const cell = row[idx], hdr = state.tableHeaders[idx].toLowerCase().trim();
               totals[i] += parseCur(cell);
@@ -826,11 +824,9 @@
                 hdr.includes("total effort days") ? cell :
                 (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs") || isET) ? "$" + cell :
                 (hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %")) ? parseFloat(cell).toFixed(2) + "%" : cell;
-              rowHTML += `<td data-col="${idx}" data-intake-id="${row[0]}">${formatted}</td>`;
+              rowHTML += `<td>${formatted}</td>`;
             });
-            rowHTML += `<td><button class="editBtn" data-intake-id="${row[0]}">Edit</button></td>`;
-            rowHTML += "</tr>";
-            tableHTML += rowHTML;
+            tableHTML += rowHTML + "</tr>";
           });
           let totalRow = `<tr><td colspan="2"><strong>Total</strong></td>`;
           indices.forEach((_, i) => {
@@ -842,16 +838,46 @@
               fTot = totals[i].toFixed(2) + "%";
             totalRow += `<td><strong>${fTot}</strong></td>`;
           });
-          totalRow += `<td></td>`;
+          totalRow += "</tr>";
           tableHTML += totalRow + "</tbody></table>";
           let trackerHTML = "";
+          if (isET) {
+            let etIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "et"),
+              otherIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "other lines of business"),
+              grandTotal = 0;
+            state.metricsRows.forEach(row => {
+              const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
+              if (!inRange(dt, start, end)) return;
+              grandTotal += parseCur(row[etIdx]) + parseCur(row[otherIdx]);
+            });
+            trackerHTML = `<h3>Total</h3>
+              <table class="modern-table">
+                <tr><th>Metric</th><th>Total</th></tr>
+                <tr><td>Grand Total</td><td>${fmtCur(grandTotal)}</td></tr>
+              </table>`;
+          } else {
+            const totObj = { totalEffortDays: 0, tc: 0, ePerc: 0, cPerc: 0 };
+            indices.forEach((idx, i) => {
+              const hdr = state.tableHeaders[idx].toLowerCase().trim();
+              let val = totals[i];
+              if (hdr.includes("total effort days")) totObj.totalEffortDays += val;
+              else if (hdr.includes("tc") || hdr.includes("total costs") || isET) totObj.tc += val;
+              if (hdr.endsWith("e%")) totObj.ePerc += val < 1 ? val * 100 : val;
+              else if (hdr.endsWith("c%")) totObj.cPerc += val < 1 ? val * 100 : val;
+            });
+            trackerHTML = `<h3>Total</h3>
+              <table class="modern-table">
+                <tr><th>Metric</th><th>Total</th></tr>
+                <tr><td>Total Effort Days</td><td>${totObj.totalEffortDays.toLocaleString()}</td></tr>
+                <tr><td>Total Cost</td><td>${fmtCur(totObj.tc)}</td></tr>
+                <tr><td>Effort %</td><td>${totObj.ePerc.toFixed(2)}%</td></tr>
+                <tr><td>Cost %</td><td>${totObj.cPerc.toFixed(2)}%</td></tr>
+              </table>`;
+          }
           container.innerHTML = `<div style="display:flex;gap:20px;">
             <div style="flex:3;max-height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:10px;">${tableHTML}</div>
             <div style="flex:1;max-height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:10px;">${trackerHTML}</div>
           </div>`;
-          container.querySelectorAll(".editBtn").forEach(btn => {
-            btn.addEventListener("click", handleEditClick);
-          });
         }
         
         // Inline editing event handlers
