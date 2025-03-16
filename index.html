@@ -223,7 +223,7 @@
             const updateData = await updateResponse.json();
             if (updateResponse.status === 200 || updateResponse.status === 201) {
               console.log(`Card ${intakeId} updated successfully in the Excel file.`);
-              // No re-fetch here so UI remains immediately updated.
+              // UI remains immediately updated.
             } else {
               if (retries > 0 && updateData.message && updateData.message.includes("does not match")) {
                 console.warn("SHA mismatch detected, retrying update...");
@@ -258,17 +258,7 @@
             let sheet = workbook.Sheets[sheetName];
             let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
             
-            let intakeIdNormalized = newIntake.intakeId.toString().trim();
-            // Check duplicate using normalized value
-            let duplicate = state.jrmRows.some(row => {
-              let existingId = normalizeID(row[0]);
-              let newId = normalizeID(newIntake.intakeId);
-              return existingId === newId;
-            });
-            if (duplicate) {
-              throw new Error("Intake ID already exists. Please use a unique Intake ID.");
-            }
-            
+            // Removed duplicate check here to avoid false positives
             const newRow = [
               newIntake.intakeId,
               newIntake.intakeName,
@@ -300,7 +290,7 @@
             const updateData = await updateResponse.json();
             if(updateResponse.status === 200 || updateResponse.status === 201){
               console.log(`New intake ${newIntake.intakeId} added successfully in the Excel file.`);
-              // No re-fetch so that UI stays updated.
+              // UI remains updated immediately.
             } else {
               if(retries > 0 && updateData.message && updateData.message.includes("does not match")){
                 console.warn("SHA mismatch, retrying...");
@@ -380,7 +370,6 @@
           }
         }
         
-        // NEW: Update Metrics Row Function
         async function updateMetricsRowInExcel(intakeId, updatedValues, retries = 3) {
           console.log(`Updating Metrics row for ${intakeId}...`);
           try {
@@ -1066,10 +1055,10 @@
             const formContainer = $("addFormContainer");
             formContainer.style.display = formContainer.style.display === "none" ? "block" : "none";
           });
-          // Updated Add New Intake: Immediately update the UI before processing the GitHub update.
           $("cancelAdd").addEventListener("click", () => {
             $("addFormContainer").style.display = "none";
           });
+          // Updated Add New Intake: Update UI immediately before processing the GitHub update.
           $("addIntakeForm").addEventListener("submit", function(e) {
             e.preventDefault();
             const formData = new FormData(this);
@@ -1080,7 +1069,7 @@
               intakeTags: formData.get("intakeTags").trim(),
               intakeDate: formData.get("intakeDate")
             };
-            // Check for duplicate locally
+            // Duplicate check is done here.
             let duplicate = state.jrmRows.some(row => {
               let existingId = normalizeID(row[0]);
               let newId = normalizeID(newIntake.intakeId);
@@ -1111,7 +1100,6 @@
               <p><strong>Comments:</strong> ${newIntake.intakeComments}</p>
               <p><strong>Tags:</strong> ${newIntake.intakeTags}</p>
             </div>`;
-            // Insert the new card immediately
             const jrmCol = document.getElementById("jrm-col");
             const header = jrmCol.querySelector("h2");
             if(header){
@@ -1119,7 +1107,6 @@
             } else {
               jrmCol.insertAdjacentHTML("afterbegin", newCardHtml);
             }
-            // Optionally, update filter if needed.
             filterCards();
             this.reset();
             $("addFormContainer").style.display = "none";
