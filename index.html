@@ -859,10 +859,22 @@
             indices.forEach((idx, i) => {
               const cell = row[idx], hdr = state.tableHeaders[idx].toLowerCase().trim();
               totals[i] += parseCur(cell);
-              let formatted = (cell === "" || cell === null || isNaN(parseFloat(cell))) ? "-" :
-                hdr.includes("total effort days") ? cell :
-                (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs") || isET) ? "$" + cell :
-                (hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %")) ? parseFloat(cell).toFixed(2) + "%" : cell;
+              let formatted =
+                (cell === "" || cell === null || isNaN(parseFloat(cell)))
+                  ? "-"
+                  : hdr.includes("total effort days")
+                  ? cell
+                  : (hdr.includes("cost") ||
+                    hdr.endsWith("tc") ||
+                    hdr.includes("total costs") ||
+                    isET ||
+                    ["et", "other lines of business", "total ongoing costs", "lob sub-total", "contingency"].includes(hdr.toLowerCase()))
+                    ? fmtCur(parseFloat(cell))
+                    : (hdr.endsWith("%") ||
+                      hdr.includes("effort") ||
+                      hdr.includes("cost %"))
+                    ? parseFloat(cell).toFixed(2) + "%"
+                    : cell;
               rowHTML += `<td data-col="${idx}" data-intake-id="${row[0]}">${formatted}</td>`;
             });
             rowHTML += `<td><button class="editBtn" data-intake-id="${row[0]}">Edit</button></td>`;
