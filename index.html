@@ -130,6 +130,19 @@
       #addIntakeForm input {
         padding: 4px;
       }
+      /* Timer display in bottom right */
+      #processTimer {
+        position: fixed;
+        bottom: 10px;
+        right: 10px;
+        background: rgba(0,0,0,0.7);
+        color: #fff;
+        padding: 5px 10px;
+        border-radius: 4px;
+        font-size: 14px;
+        z-index: 3000;
+        display: none;
+      }
     </style>
   </head>
   <body>
@@ -147,6 +160,8 @@
     
     <!-- Custom Context Menu Element -->
     <div id="contextMenu"><ul></ul></div>
+    <!-- Process Timer Display -->
+    <div id="processTimer">20</div>
     
     <!-- GitHub configuration -->
     <script>
@@ -165,36 +180,20 @@
         // Global flag to block new processes during the countdown period.
         let processActive = false;
         
-        // ----- Function: Start 15-second Countdown Overlay -----
+        // ----- Function: Start 20-second Countdown Timer (Non-blocking) -----
         function startProcessCountdown() {
           processActive = true;
-          let countdown = 15;
-          let overlay = document.getElementById("processOverlay");
-          if (!overlay) {
-            overlay = document.createElement("div");
-            overlay.id = "processOverlay";
-            overlay.style.position = "fixed";
-            overlay.style.top = "0";
-            overlay.style.left = "0";
-            overlay.style.width = "100%";
-            overlay.style.height = "100%";
-            overlay.style.background = "rgba(0,0,0,0.5)";
-            overlay.style.display = "flex";
-            overlay.style.alignItems = "center";
-            overlay.style.justifyContent = "center";
-            overlay.style.zIndex = "3000";
-            overlay.style.color = "#fff";
-            overlay.style.fontSize = "24px";
-            document.body.appendChild(overlay);
-          }
-          overlay.innerHTML = `Please wait <span id="countdown">${countdown}</span> seconds before initiating another process.`;
-          let interval = setInterval(() => {
+          let countdown = 20;
+          const timerEl = document.getElementById("processTimer");
+          timerEl.textContent = countdown;
+          timerEl.style.display = "block";
+          const interval = setInterval(() => {
             countdown--;
-            document.getElementById("countdown").textContent = countdown;
+            timerEl.textContent = countdown;
             if (countdown <= 0) {
               clearInterval(interval);
               processActive = false;
-              overlay.remove();
+              timerEl.style.display = "none";
             }
           }, 1000);
         }
