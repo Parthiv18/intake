@@ -540,7 +540,9 @@
                 return o; 
               };
         
-        // UPDATED renderTable with inline editing functionality and updated formatting for Total Effort Days
+        // UPDATED renderTable with inline editing functionality and updated tracker table logic.
+        // If the title is exactly "Metrics" (i.e. no checkboxes are checked),
+        // then the tracker table displays only "Metric" and "Total" with Grand Total = ET + Other Lines of Business.
         function renderTable(container, fixed, indices, title, start, end) {
           const isET = title === "Metrics for ET";
           // list of columns to be formatted as currency
@@ -565,7 +567,6 @@
               } else if (currencyColumns.includes(hdr)) {
                 formatted = fmtCur(parseCur(cell));
               } else if (hdr.includes("total effort days")) {
-                // Plain number with no extra characters
                 formatted = parseCur(cell).toString();
               } else if (hdr.endsWith("%") || ((hdr.includes("effort") && !hdr.includes("total effort days")) || hdr.includes("cost %"))) {
                 formatted = parseFloat(cell).toFixed(2) + "%";
@@ -600,12 +601,30 @@
           totalRow += `<td></td>`;
           tableHTML += totalRow + "</tbody></table>";
           let trackerHTML = "";
-          if (isET) {
-            let etIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "et"),
-              otherIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "other lines of business"),
-              grandTotal = 0;
+          // When no checkboxes are checked (title is exactly "Metrics"),
+          // show a simplified total table with only "Metric" and "Total"
+          if (title === "Metrics") {
+            const etIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "et");
+            const otherIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "other lines of business");
+            let grandTotal = 0;
             state.metricsRows.forEach(row => {
-              const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
+              const id = normalizeID(row[0]);
+              const dt = state.jrmDateMapping[id];
+              if (!inRange(dt, start, end)) return;
+              grandTotal += parseCur(row[etIdx]) + parseCur(row[otherIdx]);
+            });
+            trackerHTML = `<h3>Total</h3>
+              <table class="modern-table">
+                <tr><th>Metric</th><th>Total</th></tr>
+                <tr><td>Grand Total</td><td>${fmtCur(grandTotal)}</td></tr>
+              </table>`;
+          } else if (isET) {
+            const etIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "et");
+            const otherIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "other lines of business");
+            let grandTotal = 0;
+            state.metricsRows.forEach(row => {
+              const id = normalizeID(row[0]);
+              const dt = state.jrmDateMapping[id];
               if (!inRange(dt, start, end)) return;
               grandTotal += parseCur(row[etIdx]) + parseCur(row[otherIdx]);
             });
@@ -712,10 +731,10 @@
             if (!indices.length) {
               return container.innerHTML = "";
             }
+            // Pass title "Metrics" so that renderTable builds the simplified total table
             renderTable(container, fixed, indices, "Metrics", start, end);
             return;
           }
-          // Otherwise, show columns based on the checkboxes selected
           const checked = OTHER.filter(d => $(d + "Checkbox")?.checked),
                 fixed = ["Intake ID", "Intake Name"],
                 indices = [];
@@ -1012,7 +1031,6 @@
           let cards = { jrm: [], estimates: [], approved: [], ofs: [] };
           state.jrmRows.forEach((row, idx) => {
             let [id = "", name = "", comments = "", tags = "", rawStatus = "", attach = "", date] = row;
-            // Convert the date from Excel serial (if needed) to a proper Date object
             date = convertExcelDate(date);
             let status = String(rawStatus).toLowerCase(),
                 dispDate = date instanceof Date ? date.toLocaleDateString("en-US") : date,
@@ -1078,7 +1096,6 @@
               intakeTags: formData.get("intakeTags").trim(),
               intakeDate: formData.get("intakeDate")
             };
-            // Use normalizeID for duplicate check so ENT- prefix is ignored.
             let duplicate = state.jrmRows.some(row => {
               let existingId = normalizeID(row[0]);
               let newId = normalizeID(newIntake.intakeId);
