@@ -148,6 +148,14 @@
     
     <script>
       (function() {
+        // ----- Helper: Convert Excel Serial Date to JavaScript Date -----
+        function convertExcelDate(excelDate) {
+          if (typeof excelDate === "number") {
+            return new Date((excelDate - 25569) * 86400 * 1000);
+          }
+          return excelDate;
+        }
+        
         // ----- GitHub Excel Update Functions -----
         async function updateCardStatusInExcel(intakeId, newStatus, retries = 3) {
           console.log(`Updating card ${intakeId} to status ${newStatus}...`);
@@ -628,8 +636,10 @@
             </div>`;
           let cards = { jrm: [], estimates: [], approved: [], ofs: [] };
           state.jrmRows.forEach((row, idx) => {
-            let [id = "", name = "", comments = "", tags = "", rawStatus = "", attach = "", date] = row,
-                status = String(rawStatus).toLowerCase(),
+            let [id = "", name = "", comments = "", tags = "", rawStatus = "", attach = "", date] = row;
+            // Convert the date from Excel serial (if needed) to a proper Date object
+            date = convertExcelDate(date);
+            let status = String(rawStatus).toLowerCase(),
                 dispDate = date instanceof Date ? date.toLocaleDateString("en-US") : date,
                 isoDate = date instanceof Date ? date.toISOString().slice(0, 10) : date,
                 closed = status === "approved" && String(attach).trim() !== "",
