@@ -162,6 +162,43 @@
     
     <script>
       (function() {
+        // Global flag to block new processes during the countdown period.
+        let processActive = false;
+        
+        // ----- Function: Start 15-second Countdown Overlay -----
+        function startProcessCountdown() {
+          processActive = true;
+          let countdown = 15;
+          let overlay = document.getElementById("processOverlay");
+          if (!overlay) {
+            overlay = document.createElement("div");
+            overlay.id = "processOverlay";
+            overlay.style.position = "fixed";
+            overlay.style.top = "0";
+            overlay.style.left = "0";
+            overlay.style.width = "100%";
+            overlay.style.height = "100%";
+            overlay.style.background = "rgba(0,0,0,0.5)";
+            overlay.style.display = "flex";
+            overlay.style.alignItems = "center";
+            overlay.style.justifyContent = "center";
+            overlay.style.zIndex = "3000";
+            overlay.style.color = "#fff";
+            overlay.style.fontSize = "24px";
+            document.body.appendChild(overlay);
+          }
+          overlay.innerHTML = `Please wait <span id="countdown">${countdown}</span> seconds before initiating another process.`;
+          let interval = setInterval(() => {
+            countdown--;
+            document.getElementById("countdown").textContent = countdown;
+            if (countdown <= 0) {
+              clearInterval(interval);
+              processActive = false;
+              overlay.remove();
+            }
+          }, 1000);
+        }
+        
         // ----- Helper: Convert Excel Serial Date to JavaScript Date -----
         function convertExcelDate(excelDate) {
           if (typeof excelDate === "number") {
@@ -223,7 +260,6 @@
             const updateData = await updateResponse.json();
             if (updateResponse.status === 200 || updateResponse.status === 201) {
               console.log(`Card ${intakeId} updated successfully in the Excel file.`);
-              // UI remains immediately updated.
             } else {
               if (retries > 0 && updateData.message && updateData.message.includes("does not match")) {
                 console.warn("SHA mismatch detected, retrying update...");
@@ -290,7 +326,6 @@
             const updateData = await updateResponse.json();
             if(updateResponse.status === 200 || updateResponse.status === 201){
               console.log(`New intake ${newIntake.intakeId} added successfully in the Excel file.`);
-              // UI remains updated immediately.
             } else {
               if(retries > 0 && updateData.message && updateData.message.includes("does not match")){
                 console.warn("SHA mismatch, retrying...");
@@ -447,6 +482,10 @@
         document.addEventListener('click', hideContextMenu);
         
         function moveCard(card, newStatus) {
+          if (processActive) {
+            alert("Please wait, process is in progress.");
+            return;
+          }
           let container;
           if (newStatus === 'jrm') container = document.getElementById('jrm-col');
           else if (newStatus === 'estimates') container = document.getElementById('estimates-col');
@@ -462,6 +501,7 @@
             card.setAttribute('data-status', newStatus);
             const intakeId = card.getAttribute('data-intake-id');
             updateCardStatusInExcel(intakeId, newStatus);
+            startProcessCountdown();
           }
         }
         
@@ -487,10 +527,15 @@
             const deleteOption = document.createElement('li');
             deleteOption.textContent = 'Delete';
             deleteOption.addEventListener("click", function() {
+              if (processActive) {
+                alert("Please wait, process is in progress.");
+                return;
+              }
               const intakeId = card.getAttribute('data-intake-id');
               deleteCardFromExcel(intakeId);
               card.remove();
               hideContextMenu();
+              startProcessCountdown();
             });
             ul.appendChild(deleteOption);
             
@@ -648,6 +693,10 @@
         
         // Inline editing event handlers
         function handleEditClick(event) {
+          if (processActive) {
+            alert("Please wait, process is in progress.");
+            return;
+          }
           const btn = event.target;
           const tr = btn.closest("tr");
           const intakeId = btn.getAttribute("data-intake-id");
@@ -667,6 +716,10 @@
         }
         
         function handleSaveClick(event) {
+          if (processActive) {
+            alert("Please wait, process is in progress.");
+            return;
+          }
           const btn = event.target;
           const tr = btn.closest("tr");
           const intakeId = btn.getAttribute("data-intake-id");
@@ -692,6 +745,7 @@
             alert("Failed to update Metrics row: " + err.message);
             updateDisciplineTables();
           });
+          startProcessCountdown();
         }
         
         function updateDisciplineTables() {
@@ -1061,6 +1115,10 @@
           // Updated Add New Intake: Update UI immediately before processing the GitHub update.
           $("addIntakeForm").addEventListener("submit", function(e) {
             e.preventDefault();
+            if (processActive) {
+              alert("Please wait, process is in progress.");
+              return;
+            }
             const formData = new FormData(this);
             const newIntake = {
               intakeId: formData.get("intakeId").trim(),
@@ -1114,6 +1172,7 @@
             addNewIntakeToExcel(newIntake).catch(err => {
               alert("Failed to add new intake to Excel: " + err.message);
             });
+            startProcessCountdown();
           });
           filterCards();
         }
