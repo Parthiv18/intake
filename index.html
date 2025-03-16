@@ -193,7 +193,7 @@
             let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
             let found = false;
             for (let i = 1; i < data.length; i++) {
-              if (data[i][0] && data[i][0].toString().trim() === intakeId) {
+              if (data[i][0] && data[i][0].toString().trim() === intakeId.toString().trim()) {
                 data[i][4] = newStatus;
                 found = true;
                 break;
@@ -223,16 +223,19 @@
             const updateData = await updateResponse.json();
             if (updateResponse.status === 200 || updateResponse.status === 201) {
               console.log(`Card ${intakeId} updated successfully in the Excel file.`);
+              // Refresh data to update UI if needed.
+              fetchData();
             } else {
               if (retries > 0 && updateData.message && updateData.message.includes("does not match")) {
                 console.warn("SHA mismatch detected, retrying update...");
-                await updateCardStatusInExcel(intakeId, newStatus, retries - 1);
+                return updateCardStatusInExcel(intakeId, newStatus, retries - 1);
               } else {
                 throw new Error("Error updating file: " + updateData.message);
               }
             }
           } catch (error) {
             console.error("Update failed:", error);
+            alert("Failed to update card status: " + error.message);
           }
         }
         
@@ -257,6 +260,7 @@
             let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
             
             let intakeIdNormalized = newIntake.intakeId.toString().trim();
+            // Check duplicate using normalized value
             let duplicate = state.jrmRows.some(row => {
               let existingId = normalizeID(row[0]);
               let newId = normalizeID(newIntake.intakeId);
@@ -297,6 +301,8 @@
             const updateData = await updateResponse.json();
             if(updateResponse.status === 200 || updateResponse.status === 201){
               console.log(`New intake ${newIntake.intakeId} added successfully.`);
+              // Refresh data to update UI with the new card.
+              fetchData();
             } else {
               if(retries > 0 && updateData.message && updateData.message.includes("does not match")){
                 console.warn("SHA mismatch, retrying...");
@@ -333,7 +339,7 @@
             let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
             let found = false;
             for (let i = 1; i < data.length; i++) {
-              if (data[i][0] && data[i][0].toString().trim() === intakeId) {
+              if (data[i][0] && data[i][0].toString().trim() === intakeId.toString().trim()) {
                 data.splice(i, 1);
                 found = true;
                 break;
@@ -363,6 +369,7 @@
             const updateData = await updateResponse.json();
             if (updateResponse.status === 200 || updateResponse.status === 201) {
               console.log(`Card ${intakeId} deleted successfully in the Excel file.`);
+              fetchData();
             } else {
               if (retries > 0 && updateData.message && updateData.message.includes("does not match")) {
                 console.warn("SHA mismatch detected, retrying deletion...");
@@ -376,6 +383,7 @@
           }
         }
         
+        // NEW: Update Metrics Row Function
         async function updateMetricsRowInExcel(intakeId, updatedValues, retries = 3) {
           console.log(`Updating Metrics row for ${intakeId}...`);
           try {
@@ -398,10 +406,11 @@
             let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
             let found = false;
             for(let i = 1; i < data.length; i++){
-              if(data[i][0] && data[i][0].toString().trim() === intakeId){
+              if(data[i][0] && data[i][0].toString().trim() === intakeId.toString().trim()){
+                // For each updated value, update the corresponding excel column.
                 for(let key in updatedValues) {
-                  let tableIdx = parseInt(key);
-                  let excelIdx = tableIdx - 1;
+                  let tableIdx = parseInt(key); // tableIdx from our rendered table (>=2)
+                  let excelIdx = tableIdx - 1; // shift because "Intake Name" was inserted at index 1 in the table
                   data[i][excelIdx] = updatedValues[key];
                 }
                 found = true;
@@ -452,8 +461,7 @@
         }
         document.addEventListener('click', hideContextMenu);
         
-        // Updated moveCard is now asynchronous
-        async function moveCard(card, newStatus) {
+        function moveCard(card, newStatus) {
           let container;
           if (newStatus === 'jrm') container = document.getElementById('jrm-col');
           else if (newStatus === 'estimates') container = document.getElementById('estimates-col');
@@ -468,7 +476,8 @@
             }
             card.setAttribute('data-status', newStatus);
             const intakeId = card.getAttribute('data-intake-id');
-            await updateCardStatusInExcel(intakeId, newStatus);
+            // Update Excel file and then re-run filterCards() to update UI if necessary.
+            updateCardStatusInExcel(intakeId, newStatus);
           }
         }
         
@@ -485,8 +494,8 @@
             options.forEach(option => {
               const li = document.createElement('li');
               li.textContent = 'Move to ' + option;
-              li.addEventListener("click", async function() {
-                await moveCard(card, option);
+              li.addEventListener("click", function() {
+                moveCard(card, option);
                 hideContextMenu();
               });
               ul.appendChild(li);
@@ -538,7 +547,7 @@
                 return o; 
               };
         
-        // renderTable and updateDisciplineTables remain as in the previous version
+        // UPDATED renderTable with inline editing functionality and updated tracker table logic.
         function renderTable(container, fixed, indices, title, start, end) {
           const isET = title === "Metrics for ET";
           const currencyColumns = ["et", "other lines of business", "total ongoing costs", "lob sub-total", "contingency"];
@@ -651,6 +660,54 @@
           </div>`;
           container.querySelectorAll(".editBtn").forEach(btn => {
             btn.addEventListener("click", handleEditClick);
+          });
+        }
+        
+        // Inline editing event handlers
+        function handleEditClick(event) {
+          const btn = event.target;
+          const tr = btn.closest("tr");
+          const intakeId = btn.getAttribute("data-intake-id");
+          const editableCells = tr.querySelectorAll("td[data-col]");
+          editableCells.forEach(cell => {
+            let currentText = cell.textContent;
+            let rawValue = currentText.replace(/[\$, %]/g, "").trim();
+            cell.innerHTML = `<input type="text" value="${rawValue}" style="width:100%;">`;
+          });
+          const actionCell = tr.querySelector("td:last-child");
+          actionCell.innerHTML = `<button class="saveBtn" data-intake-id="${intakeId}">Save</button>
+                                  <button class="cancelBtn" data-intake-id="${intakeId}">Cancel</button>`;
+          actionCell.querySelector(".saveBtn").addEventListener("click", handleSaveClick);
+          actionCell.querySelector(".cancelBtn").addEventListener("click", () => {
+            updateDisciplineTables();
+          });
+        }
+        
+        function handleSaveClick(event) {
+          const btn = event.target;
+          const tr = btn.closest("tr");
+          const intakeId = btn.getAttribute("data-intake-id");
+          let updatedValues = {};
+          tr.querySelectorAll("td[data-col]").forEach(cell => {
+            const colIdx = cell.getAttribute("data-col");
+            const input = cell.querySelector("input");
+            if(input) {
+              updatedValues[colIdx] = input.value;
+            }
+          });
+          updateMetricsRowInExcel(intakeId, updatedValues).then(() => {
+            for(let i=0; i<state.metricsRows.length; i++){
+              if(state.metricsRows[i][0].toString().trim() === intakeId.toString().trim()){
+                for(let key in updatedValues) {
+                  state.metricsRows[i][parseInt(key)] = updatedValues[key];
+                }
+                break;
+              }
+            }
+            updateDisciplineTables();
+          }).catch(err => {
+            alert("Failed to update Metrics row: " + err.message);
+            updateDisciplineTables();
           });
         }
         
@@ -845,25 +902,16 @@
           );
         }
         
-        function init() {
-          $("totalBtn").addEventListener("click", () => showSection("total-content"));
-          $("jrmBtn").addEventListener("click", () => showSection("jrm-content"));
-          $("definitionBtn").addEventListener("click", () => window.open("https://cibc-my.sharepoint.com/:p:/p/peter_crescenzi/EfCWJ1Wz92JNvCgEewJyQv4BJVVJKxSRmWz6IwjROaDNNA?e=CND6ej", "_blank"));
-          $("exportAllBtn").addEventListener("click", exportAll);
-          fetchData();
-          showSection("jrm-content");
-        }
-        
-        async function fetchData() {
-          try {
-            const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
-            const response = await fetch(getUrl, {
-              headers: {
-                Authorization: `token ${CONFIG.token}`,
-                Accept: "application/vnd.github+json"
-              }
-            });
-            const fileData = await response.json();
+        function fetchData() {
+          const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
+          fetch(getUrl, {
+            headers: {
+              Authorization: `token ${CONFIG.token}`,
+              Accept: "application/vnd.github+json"
+            }
+          })
+          .then(response => response.json())
+          .then(fileData => {
             const base64Content = fileData.content.replace(/\n/g, "");
             const binaryString = atob(base64Content);
             const len = binaryString.length;
@@ -874,9 +922,10 @@
             const wb = XLSX.read(bytes.buffer, { type: "array", cellDates: true });
             processJRM(wb.Sheets["JRM"]);
             processMetrics(wb.Sheets["Metrics"]);
-          } catch (e) {
+          })
+          .catch(e => {
             console.error("Error loading updated Excel file:", e);
-          }
+          });
         }
         
         function processMetrics(sheet) {
@@ -980,8 +1029,7 @@
                 normId = normalizeID(id);
             state.jrmNameMapping[normId] = name;
             state.jrmDateMapping[normId] = isoDate;
-            const viewLink = status === "approved" ?
-              `<div style="position:absolute;bottom:10px;right:10px;"><a href="javascript:void(0)" data-intake-id="${normId}" class="view-link">View</a></div>` : "";
+            const viewLink = status === "approved" ? `<div style="position:absolute;bottom:10px;right:10px;"><a href="javascript:void(0)" data-intake-id="${normId}" class="view-link">View</a></div>` : "";
             const card = `<div id="card-ENT-${normId}" class="jrm-card" data-intake-id="${id}" data-intake-name="${name}" data-intake-tags="${tags}" data-intake-date="${isoDate}" data-status="${status}" data-closed="${closed}">
                 <h3><a href="https://jira.cibcatl.com/browse/ENT-${normId}" target="_blank">ENT-${normId} - ${name}</a></h3>
                 <p><strong>Date:</strong> ${dispDate}</p>
@@ -1048,36 +1096,8 @@
             }
             try {
               await addNewIntakeToExcel(newIntake);
-              const newRow = [
-                newIntake.intakeId,
-                newIntake.intakeName,
-                newIntake.intakeComments,
-                newIntake.intakeTags,
-                "jrm",
-                "",
-                newIntake.intakeDate
-              ];
-              state.jrmRows.unshift(newRow);
-              const normId = normalizeID(newIntake.intakeId);
-              state.jrmNameMapping[normId] = newIntake.intakeName;
-              state.jrmDateMapping[normId] = newIntake.intakeDate;
-              const dispDate = new Date(newIntake.intakeDate).toLocaleDateString("en-US");
-              const newCardHtml = `<div id="card-ENT-${normId}" class="jrm-card" data-intake-id="${newIntake.intakeId}" data-intake-name="${newIntake.intakeName}" data-intake-tags="${newIntake.intakeTags}" data-intake-date="${dispDate}" data-status="jrm" data-closed="false">
-                <h3><a href="https://jira.cibcatl.com/browse/ENT-${normId}" target="_blank">ENT-${normId} - ${newIntake.intakeName}</a></h3>
-                <p><strong>Date:</strong> ${dispDate}</p>
-                <p><strong>Comments:</strong> ${newIntake.intakeComments}</p>
-                <p><strong>Tags:</strong> ${newIntake.intakeTags}</p>
-              </div>`;
-              const jrmCol = document.getElementById("jrm-col");
-              const header = jrmCol.querySelector("h2");
-              if(header){
-                header.insertAdjacentHTML("afterend", newCardHtml);
-              } else {
-                jrmCol.insertAdjacentHTML("afterbegin", newCardHtml);
-              }
-              $("addFormContainer").style.display = "none";
               this.reset();
-              filterCards();
+              $("addFormContainer").style.display = "none";
             } catch (err) {
               alert("Failed to add new intake: " + err.message);
             }
