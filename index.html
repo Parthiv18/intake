@@ -234,6 +234,7 @@
             let sheet = workbook.Sheets[sheetName];
             let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
             
+            // Check for duplicate Intake ID (assumed to be in column 0)
             let intakeIdNormalized = newIntake.intakeId.toString().trim();
             for(let i = 1; i < data.length; i++){
               if(data[i][0] && data[i][0].toString().trim() === intakeIdNormalized){
@@ -241,15 +242,17 @@
               }
             }
             
+            // Create new row: [Intake ID, Intake Name, Intake Comments, Intake Tags, Status, Attachments, Date]
             const newRow = [
               newIntake.intakeId,
               newIntake.intakeName,
               newIntake.intakeComments,
               newIntake.intakeTags,
-              "jrm",
-              "",
+              "jrm",   // default status
+              "",      // attachments blank
               newIntake.intakeDate
             ];
+            // Insert new row right after header (index 1)
             data.splice(1, 0, newRow);
             const newSheet = XLSX.utils.aoa_to_sheet(data);
             workbook.Sheets[sheetName] = newSheet;
@@ -286,6 +289,7 @@
           }
         }
         
+        // ----- New: Delete Card from Excel Function -----
         async function deleteCardFromExcel(intakeId, retries = 3) {
           console.log(`Deleting card ${intakeId}...`);
           try {
@@ -351,78 +355,6 @@
           }
         }
         
-        // NEW: Update Metrics Row Function
-        async function updateMetricsRowInExcel(intakeId, updatedValues, retries = 3) {
-          console.log(`Updating Metrics row for ${intakeId}...`);
-          try {
-            const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
-            const getResponse = await fetch(getUrl, {
-              headers: {
-                Authorization: `token ${CONFIG.token}`,
-                Accept: "application/vnd.github+json"
-              }
-            });
-            const getData = await getResponse.json();
-            if(getResponse.status !== 200) {
-              throw new Error("Error fetching file: " + getData.message);
-            }
-            const sha = getData.sha;
-            const base64Content = getData.content.replace(/\n/g, "");
-            let workbook = XLSX.read(base64Content, { type: "base64" });
-            const sheetName = "Metrics";
-            let sheet = workbook.Sheets[sheetName];
-            let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-            let found = false;
-            for(let i = 1; i < data.length; i++){
-              if(data[i][0] && data[i][0].toString().trim() === intakeId){
-                // For each updated value, update the corresponding excel column.
-                for(let key in updatedValues) {
-                  let tableIdx = parseInt(key); // tableIdx from our rendered table (>=2)
-                  let excelIdx = tableIdx - 1; // shift because "Intake Name" was inserted at index 1 in the table
-                  data[i][excelIdx] = updatedValues[key];
-                }
-                found = true;
-                break;
-              }
-            }
-            if(!found){
-              throw new Error("Intake ID not found in the Metrics sheet.");
-            }
-            const newSheet = XLSX.utils.aoa_to_sheet(data);
-            workbook.Sheets[sheetName] = newSheet;
-            const newBase64Content = XLSX.write(workbook, { bookType: "xlsx", type: "base64" });
-            const updateUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`;
-            const updateResponse = await fetch(updateUrl, {
-              method: "PUT",
-              headers: {
-                Authorization: `token ${CONFIG.token}`,
-                Accept: "application/vnd.github+json",
-                "Content-Type": "application/json"
-              },
-              body: JSON.stringify({
-                message: `Update Metrics row for ${intakeId}`,
-                content: newBase64Content,
-                sha: sha,
-                branch: CONFIG.branch
-              })
-            });
-            const updateData = await updateResponse.json();
-            if(updateResponse.status === 200 || updateResponse.status === 201){
-              console.log(`Metrics row for ${intakeId} updated successfully in the Excel file.`);
-            } else {
-              if(retries > 0 && updateData.message && updateData.message.includes("does not match")){
-                console.warn("SHA mismatch detected, retrying update...");
-                return updateMetricsRowInExcel(intakeId, updatedValues, retries-1);
-              } else {
-                throw new Error("Error updating file: " + updateData.message);
-              }
-            }
-          } catch (error) {
-            console.error("Metrics update failed:", error);
-            throw error;
-          }
-        }
-        
         // ----- Custom Context Menu Functionality -----
         function hideContextMenu() {
           document.getElementById('contextMenu').style.display = 'none';
@@ -467,6 +399,7 @@
               });
               ul.appendChild(li);
             });
+            // Append "Delete" option as the last item
             const deleteOption = document.createElement('li');
             deleteOption.textContent = 'Delete';
             deleteOption.addEventListener("click", function() {
@@ -485,34 +418,36 @@
         
         // ----- Existing Data Fetching & Processing Code -----
         const OTHER = ["ba", "qa", "aoto", "pmo", "dev"],
-              dp = { et: "et", ba: "et-ba", qa: "et-qa", aoto: "ao/to", pmo: "pmo", dev: "et-dev" },
-              state = {
-                jrmHeader: null,
-                jrmDateMapping: {},
-                jrmNameMapping: {},
-                jrmRows: [],
-                metricsRows: [],
-                tableHeaders: [],
-                metricOptions: [],
-                metricMapping: {},
-                metricsIDs: new Set(),
-                rawMetrics: []
-              };
-        
+          dp = { et: "et", ba: "et-ba", qa: "et-qa", aoto: "ao/to", pmo: "pmo", dev: "et-dev" },
+          state = {
+            jrmHeader: null,
+            jrmDateMapping: {},
+            jrmNameMapping: {},
+            jrmRows: [],
+            metricsRows: [],
+            tableHeaders: [],
+            metricOptions: [],
+            metricMapping: {},
+            metricsIDs: new Set(),
+            rawMetrics: []
+          };
+
+        // Helper functions
         const $ = id => document.getElementById(id),
-              on = (sel, evt, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(evt, fn)),
-              fmtCur = num => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(num),
-              parseCur = val => typeof val === "string" ? parseFloat(val.replace(/[^0-9.-]+/g, "")) || 0 : Number(val) || 0,
-              normalizeID = id => (id = String(id || "").trim(), id.toUpperCase().startsWith("ENT-") ? id.slice(4) : id),
-              inRange = (dt, s, e) => (!s || dt >= s) && (!e || dt <= e),
-              createOption = (val, text) => { 
-                const o = document.createElement("option"); 
-                o.value = val; o.textContent = text; 
-                return o; 
-              };
-        
+          on = (sel, evt, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(evt, fn)),
+          fmtCur = num => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(num),
+          parseCur = val => typeof val === "string" ? parseFloat(val.replace(/[^0-9.-]+/g, "")) || 0 : Number(val) || 0,
+          normalizeID = id => (id = String(id || "").trim(), id.toUpperCase().startsWith("ENT-") ? id.slice(4) : id),
+          inRange = (dt, s, e) => (!s || dt >= s) && (!e || dt <= e),
+          createOption = (val, text) => { 
+            const o = document.createElement("option"); 
+            o.value = val; o.textContent = text; 
+            return o; 
+          };
+
         async function fetchData() {
           try {
+            // Fetch the Excel file from GitHub to always get the latest version
             const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
             const response = await fetch(getUrl, {
               headers: {
@@ -522,6 +457,7 @@
             });
             const fileData = await response.json();
             const base64Content = fileData.content.replace(/\n/g, "");
+            // Convert Base64 to ArrayBuffer
             const binaryString = atob(base64Content);
             const len = binaryString.length;
             const bytes = new Uint8Array(len);
@@ -535,7 +471,7 @@
             console.error("Error loading updated Excel file:", e);
           }
         }
-        
+
         function processMetrics(sheet) {
           const raw = XLSX.utils.sheet_to_json(sheet, { header: 1 });
           state.rawMetrics = raw;
@@ -556,11 +492,10 @@
             const id = normalizeID(row[0]);
             row.splice(1, 0, state.jrmNameMapping[id] || "");
           });
-          // Build metric options and mapping using lowercase keys
           state.tableHeaders.forEach((hdr, i) => {
             if (!["Intake ID", "Intake Name"].includes(hdr)) {
               state.metricOptions.push(hdr);
-              state.metricMapping[hdr.toLowerCase()] = i;
+              state.metricMapping[hdr] = i;
             }
           });
           $("total-content").innerHTML = `
@@ -595,12 +530,13 @@
           $("clearTotal").addEventListener("click", clearFilters);
           updateMetricSelect();
         }
-        
+
         function processJRM(sheet) {
           const raw = XLSX.utils.sheet_to_json(sheet, { header: 1 });
           if (!raw || raw.length < 2) return console.error("JRM sheet has no data.");
           state.jrmHeader = raw[0];
           state.jrmRows = raw.slice(1);
+          // Build the top filter and add form HTML for the JRM section
           let html = `<div class="container">
             <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
               <input type="text" id="searchInput" placeholder="Search by Intake ID, Name or Tags">
@@ -615,6 +551,7 @@
               <button id="clearButton">Clear</button>
               <span id="counter">Intakes Count: 0</span>
             </div>
+            <!-- Add New Intake Form (hidden by default) -->
             <div id="addFormContainer" style="display:none;">
               <h3>Add New Intake</h3>
               <form id="addIntakeForm">
@@ -627,14 +564,15 @@
                 <button type="button" id="cancelAdd">Cancel</button>
               </form>
             </div>`;
+          // Process each row to create JRM cards
           let cards = { jrm: [], estimates: [], approved: [], ofs: [] };
           state.jrmRows.forEach((row, idx) => {
             let [id = "", name = "", comments = "", tags = "", rawStatus = "", attach = "", date] = row,
-                status = String(rawStatus).toLowerCase(),
-                dispDate = date instanceof Date ? date.toLocaleDateString("en-US") : date,
-                isoDate = date instanceof Date ? date.toISOString().slice(0, 10) : date,
-                closed = status === "approved" && String(attach).trim() !== "",
-                normId = normalizeID(id);
+              status = String(rawStatus).toLowerCase(),
+              dispDate = date instanceof Date ? date.toLocaleDateString("en-US") : date,
+              isoDate = date instanceof Date ? date.toISOString().slice(0, 10) : date,
+              closed = status === "approved" && String(attach).trim() !== "",
+              normId = normalizeID(id);
             state.jrmNameMapping[normId] = name;
             state.jrmDateMapping[normId] = isoDate;
             const viewLink = status === "approved" ?
@@ -665,6 +603,8 @@
             </div>
           </div>`;
           $("jrm-content").innerHTML = html;
+          
+          // Add event listeners for filtering
           on("#searchInput, #startDate, #endDate, #statusDropdown", "input", filterCards);
           $("clearButton").addEventListener("click", () => {
             $("searchInput").value = "";
@@ -677,13 +617,17 @@
             if (e.target.classList.contains("view-link"))
               showData(e.target.getAttribute("data-intake-id"));
           });
+          
+          // Add button to toggle the add form
           $("addButton").addEventListener("click", () => {
             const formContainer = $("addFormContainer");
             formContainer.style.display = formContainer.style.display === "none" ? "block" : "none";
           });
+          // Cancel button to hide add form
           $("cancelAdd").addEventListener("click", () => {
             $("addFormContainer").style.display = "none";
           });
+          // Handle add intake form submission
           $("addIntakeForm").addEventListener("submit", async function(e) {
             e.preventDefault();
             const formData = new FormData(this);
@@ -694,6 +638,7 @@
               intakeTags: formData.get("intakeTags").trim(),
               intakeDate: formData.get("intakeDate")
             };
+            // Check if the intake ID already exists in the current state
             let duplicate = state.jrmRows.some(row => row[0] && row[0].toString().trim() === newIntake.intakeId);
             if (duplicate) {
               alert("Intake ID already exists. Please use a unique Intake ID.");
@@ -701,6 +646,7 @@
             }
             try {
               await addNewIntakeToExcel(newIntake);
+              // Update local state: add the new row at the top
               const newRow = [
                 newIntake.intakeId,
                 newIntake.intakeName,
@@ -711,9 +657,11 @@
                 newIntake.intakeDate
               ];
               state.jrmRows.unshift(newRow);
+              // Update mappings for the new intake
               const normId = normalizeID(newIntake.intakeId);
               state.jrmNameMapping[normId] = newIntake.intakeName;
               state.jrmDateMapping[normId] = newIntake.intakeDate;
+              // Create new card HTML and prepend it to the JRM column (after header)
               const dispDate = new Date(newIntake.intakeDate).toLocaleDateString("en-US");
               const newCardHtml = `<div id="card-ENT-${normId}" class="jrm-card" data-intake-id="${newIntake.intakeId}" data-intake-name="${newIntake.intakeName}" data-intake-tags="${newIntake.intakeTags}" data-intake-date="${newIntake.intakeDate}" data-status="jrm" data-closed="false">
                 <h3><a href="https://jira.cibcatl.com/browse/ENT-${normId}" target="_blank">ENT-${normId} - ${newIntake.intakeName}</a></h3>
@@ -728,32 +676,96 @@
               } else {
                 jrmCol.insertAdjacentHTML("afterbegin", newCardHtml);
               }
+              // Hide the form and reset it
               $("addFormContainer").style.display = "none";
               this.reset();
-              filterCards();
+              filterCards(); // update the counter
             } catch (err) {
               alert("Failed to add new intake: " + err.message);
             }
           });
           filterCards();
         }
-        
-        // UPDATED renderTable with separate Metrics and Total tables
+
+        function generateIntakeCards(data) {
+          $("intake-charts").innerHTML = data.slice(1).reduce((html, row) => {
+            const id = normalizeID(row[0]);
+            return html + `
+              <div id="data-${id}" class="data" style="display:none;border:1px solid #ddd;margin-bottom:20px;padding:10px;">
+                <div style="border:1px solid #ddd;margin:10px;padding:10px;">
+                  <h3>ET One Time Estimates Breakdown</h3>
+                  <div class="charts-row">
+                    ${[1,2,3,4].map(i => `<div id="chart${i}-${id}" class="chart-container"></div>`).join("")}
+                  </div>
+                </div>
+                <div style="border:1px solid #ddd;margin:10px;padding:10px;">
+                  <h3>LOB Sub-Total & Contingency and ET & Other Lines of Business</h3>
+                  <div class="charts-row">
+                    ${[5,6].map(i => `<div id="chart${i}-${id}" class="chart-container"></div>`).join("")}
+                  </div>
+                </div>
+              </div>`;
+          }, "");
+        }
+
+        function initCharts(data) {
+          const header = data[0], last = header.length,
+            contIdx = header.findIndex(h => h.trim().toLowerCase() === "contingency"),
+            startIdx = contIdx + 1;
+          data.slice(1).forEach(row => {
+            const id = normalizeID(row[0]),
+              etLabels = [], etTFD = [], etTC = [], etEff = [], etCost = [];
+            for (let col = startIdx; col < last; col += 4) {
+              etLabels.push((header[col] || "").replace(" Total Effort Days", ""));
+              etTFD.push(row[col] || 0);
+              etTC.push(row[col + 1] || 0);
+              etEff.push(row[col + 2] || 0);
+              etCost.push(row[col + 3] || 0);
+            }
+            const color = i => ["#4a90e2", "#a0c4ff", "#90b0d8", "#7a9cc6", "#6588b4"][(i - 1) % 5];
+            generateChart(`chart1-${id}`, etLabels, etTFD, "Total Effort Days", etLabels.map((_,i) => color(i+1)));
+            generateChart(`chart2-${id}`, etLabels, etTC, "Total Costs", etLabels.map((_,i) => color(i+1)));
+            generateChart(`chart3-${id}`, etLabels, etEff, "Effort %", etLabels.map((_,i) => color(i+1)));
+            generateChart(`chart4-${id}`, etLabels, etCost, "Cost %", etLabels.map((_,i) => color(i+1)));
+  
+            const lob = Number(row[header.findIndex(h => h.trim().toLowerCase() === "lob sub-total")] || 0),
+              cont = Number(row[contIdx] || 0),
+              data5 = [lob, cont, lob + cont],
+              labels5 = ["LOB Sub-Total", "Contingency", "Total"],
+              etVal = Number(row[header.findIndex(h => h.trim().toLowerCase() === "et")] || 0),
+              other = Number(row[header.findIndex(h => h.trim().toLowerCase() === "other lines of business")] || 0),
+              data6 = [etVal, other, etVal + other],
+              labels6 = ["ET", "Other Lines", "Total"];
+            generateChart(`chart5-${id}`, labels5, data5, "LOB Sub-Total & Contingency", ["#4a90e2", "#a0c4ff", "#7a9cc6"]);
+            generateChart(`chart6-${id}`, labels6, data6, "ET & Other Lines", ["#4a90e2", "#a0c4ff", "#7a9cc6"]);
+          });
+        }
+
+        function generateChart(id, labels, data, title, colors) {
+          Highcharts.chart(id, {
+            chart: { type: "column" },
+            title: { text: title },
+            xAxis: { categories: labels },
+            yAxis: { min: 0, title: { text: "Value" } },
+            plotOptions: { column: { stacking: "normal" } },
+            series: [{
+              name: title,
+              data: labels.map((_, i) => ({ y: parseFloat(data[i]) || 0, color: colors[i] }))
+            }]
+          });
+        }
+
         function renderTable(container, fixed, indices, title, start, end) {
           const isET = title === "Metrics for ET";
           let totals = Array(indices.length).fill(0);
-          let metricsTableHTML = `<h3>${title} - Details</h3>
+          let tableHTML = `<h3>${title}</h3>
             <table class="modern-table">
-              <thead>
-                <tr>${fixed.map(h => `<th>${h}</th>`).join("")}<th>Actions</th></tr>
-              </thead>
+              <thead><tr>${fixed.map(h => `<th>${h}</th>`).join("")}</tr></thead>
               <tbody>`;
           state.metricsRows.forEach(row => {
             const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
             if (!inRange(dt, start, end)) return;
-            let rowHTML = `<tr>
-              <td>${row[0]}</td>
-              <td>${row[1]}</td>`;
+            let rowHTML = `<tr><td>${row[0]}</td><td>${row[1]}</td>`;
             indices.forEach((idx, i) => {
               const cell = row[idx], hdr = state.tableHeaders[idx].toLowerCase().trim();
               totals[i] += parseCur(cell);
@@ -761,94 +773,62 @@
                 hdr.includes("total effort days") ? cell :
                 (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs") || isET) ? "$" + cell :
                 (hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %")) ? parseFloat(cell).toFixed(2) + "%" : cell;
-              rowHTML += `<td data-col="${idx}" data-intake-id="${row[0]}">${formatted}</td>`;
+              rowHTML += `<td>${formatted}</td>`;
             });
-            rowHTML += `<td><button class="editBtn" data-intake-id="${row[0]}">Edit</button></td>`;
-            rowHTML += "</tr>";
-            metricsTableHTML += rowHTML;
+            tableHTML += rowHTML + "</tr>";
           });
-          metricsTableHTML += `</tbody></table>`;
-          
-          let totalsTableHTML = `<h3>${title} - Total</h3>
-            <table class="modern-table">
-              <thead>
-                <tr>${fixed.map(h => `<th>${h}</th>`).join("")}<th></th></tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td colspan="2"><strong>Total</strong></td>`;
-          indices.forEach((idx, i) => {
+          let totalRow = `<tr><td colspan="2"><strong>Total</strong></td>`;
+          indices.forEach((_, i) => {
             const hdr = state.tableHeaders[indices[i]].toLowerCase().trim();
-            let fTot = totals[i];
+            let fTot = totals[i].toLocaleString();
             if (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs") || isET)
-                fTot = fmtCur(totals[i]);
+              fTot = fmtCur(totals[i]);
             else if ((hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %")) && !hdr.includes("total effort days"))
-                fTot = totals[i].toFixed(2) + "%";
-            else {
-                fTot = totals[i].toLocaleString();
-            }
-            totalsTableHTML += `<td><strong>${fTot}</strong></td>`;
+              fTot = totals[i].toFixed(2) + "%";
+            totalRow += `<td><strong>${fTot}</strong></td>`;
           });
-          totalsTableHTML += `<td></td></tr></tbody></table>`;
-          
+          totalRow += "</tr>";
+          tableHTML += totalRow + "</tbody></table>";
+          let trackerHTML = "";
+          if (isET) {
+            let etIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "et"),
+              otherIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "other lines of business"),
+              grandTotal = 0;
+            state.metricsRows.forEach(row => {
+              const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
+              if (!inRange(dt, start, end)) return;
+              grandTotal += parseCur(row[etIdx]) + parseCur(row[otherIdx]);
+            });
+            trackerHTML = `<h3>Total</h3>
+              <table class="modern-table">
+                <tr><th>Metric</th><th>Total</th></tr>
+                <tr><td>Grand Total</td><td>${fmtCur(grandTotal)}</td></tr>
+              </table>`;
+          } else {
+            const totObj = { totalEffortDays: 0, tc: 0, ePerc: 0, cPerc: 0 };
+            indices.forEach((idx, i) => {
+              const hdr = state.tableHeaders[idx].toLowerCase().trim();
+              let val = totals[i];
+              if (hdr.includes("total effort days")) totObj.totalEffortDays += val;
+              else if (hdr.includes("tc") || hdr.includes("total costs") || isET) totObj.tc += val;
+              if (hdr.endsWith("e%")) totObj.ePerc += val < 1 ? val * 100 : val;
+              else if (hdr.endsWith("c%")) totObj.cPerc += val < 1 ? val * 100 : val;
+            });
+            trackerHTML = `<h3>Total</h3>
+              <table class="modern-table">
+                <tr><th>Metric</th><th>Total</th></tr>
+                <tr><td>Total Effort Days</td><td>${totObj.totalEffortDays.toLocaleString()}</td></tr>
+                <tr><td>Total Cost</td><td>${fmtCur(totObj.tc)}</td></tr>
+                <tr><td>Effort %</td><td>${totObj.ePerc.toFixed(2)}%</td></tr>
+                <tr><td>Cost %</td><td>${totObj.cPerc.toFixed(2)}%</td></tr>
+              </table>`;
+          }
           container.innerHTML = `<div style="display:flex;gap:20px;">
-            <div style="flex:3;max-height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:10px;">${metricsTableHTML}</div>
-            <div style="flex:1;max-height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:10px;">${totalsTableHTML}</div>
+            <div style="flex:3;max-height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:10px;">${tableHTML}</div>
+            <div style="flex:1;max-height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:10px;">${trackerHTML}</div>
           </div>`;
-          
-          container.querySelectorAll(".editBtn").forEach(btn => {
-            btn.addEventListener("click", handleEditClick);
-          });
         }
-        
-        // Inline editing event handlers
-        function handleEditClick(event) {
-          const btn = event.target;
-          const tr = btn.closest("tr");
-          const intakeId = btn.getAttribute("data-intake-id");
-          const editableCells = tr.querySelectorAll("td[data-col]");
-          editableCells.forEach(cell => {
-            let currentText = cell.textContent;
-            let rawValue = currentText.replace(/[\$, %]/g, "").trim();
-            cell.innerHTML = `<input type="text" value="${rawValue}" style="width:100%;">`;
-          });
-          const actionCell = tr.querySelector("td:last-child");
-          actionCell.innerHTML = `<button class="saveBtn" data-intake-id="${intakeId}">Save</button>
-                                  <button class="cancelBtn" data-intake-id="${intakeId}">Cancel</button>`;
-          actionCell.querySelector(".saveBtn").addEventListener("click", handleSaveClick);
-          actionCell.querySelector(".cancelBtn").addEventListener("click", () => {
-            updateDisciplineTables();
-          });
-        }
-        
-        function handleSaveClick(event) {
-          const btn = event.target;
-          const tr = btn.closest("tr");
-          const intakeId = btn.getAttribute("data-intake-id");
-          let updatedValues = {};
-          tr.querySelectorAll("td[data-col]").forEach(cell => {
-            const colIdx = cell.getAttribute("data-col");
-            const input = cell.querySelector("input");
-            if(input) {
-              updatedValues[colIdx] = input.value;
-            }
-          });
-          updateMetricsRowInExcel(intakeId, updatedValues).then(() => {
-            for(let i=0; i<state.metricsRows.length; i++){
-              if(state.metricsRows[i][0].toString().trim() === intakeId){
-                for(let key in updatedValues) {
-                  state.metricsRows[i][parseInt(key)] = updatedValues[key];
-                }
-                break;
-              }
-            }
-            updateDisciplineTables();
-          }).catch(err => {
-            alert("Failed to update Metrics row: " + err.message);
-            updateDisciplineTables();
-          });
-        }
-        
+
         function updateDisciplineTables() {
           const container = $("discipline-tables-container"),
                 start = $("startDateTotal").value,
@@ -881,16 +861,16 @@
           }
           renderTable(container, fixed, indices, `Metrics for ${checked.map(d => d.toUpperCase()).join(", ")}`, start, end);
         }
-        
+
         function updateMetricSelect() {
           const sel = $("metric");
           sel.innerHTML = "";
           if (!OTHER.some(d => $(d + "Checkbox")?.checked)) {
             const etIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "et"),
-                  contIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "contingency"),
-                  defs = etIdx !== -1 && contIdx !== -1 && contIdx > etIdx
-                    ? state.tableHeaders.slice(etIdx, contIdx + 1)
-                    : ["ET", "Other Lines of Business", "LOB Sub-Total", "Contingency"];
+              contIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "contingency"),
+              defs = etIdx !== -1 && contIdx !== -1 && contIdx > etIdx
+                ? state.tableHeaders.slice(etIdx, contIdx + 1)
+                : ["ET", "Other Lines of Business", "LOB Sub-Total", "Contingency"];
             defs.forEach(metric => sel.appendChild(createOption(metric, metric)));
             sel.onchange = () => { updateChartAndTable(sel.value); updateDisciplineTables(); };
             updateChartAndTable(defs[0]);
@@ -907,23 +887,22 @@
           opts.length ? updateChartAndTable(opts[0]) : ($("chart-container").innerHTML = "");
           updateDisciplineTables();
         }
-        
+
         function clearFilters() {
           OTHER.forEach(d => { if ($(d + "Checkbox")) $(d + "Checkbox").checked = false; });
           ["startDateTotal", "endDateTotal"].forEach(id => $(id).value = "");
           updateMetricSelect();
         }
-        
+
         function updateChartAndTable(metric) {
           $("chart-container").classList.remove("hidden");
-          // Use lowercase metric key to look up in state.metricMapping
-          const col = state.metricMapping[metric.toLowerCase()],
-                start = $("startDateTotal").value,
-                end = $("endDateTotal").value,
-                filtered = state.metricsRows.filter(row => {
-                  const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
-                  return (!start && !end) || (dt && inRange(dt, start, end));
-                });
+          const col = state.metricMapping[metric],
+            start = $("startDateTotal").value,
+            end = $("endDateTotal").value,
+            filtered = state.metricsRows.filter(row => {
+              const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
+              return (!start && !end) || (dt && inRange(dt, start, end));
+            });
           if (!filtered.length) {
             $("chart-container").innerHTML = "<p>No data available for selected date range.</p>";
             return;
@@ -952,7 +931,7 @@
             plotOptions: { pie: { allowPointSelect: true, cursor: "pointer", showInLegend: true } }
           });
         }
-        
+
         function exportAll() {
           state.jrmRows.forEach(row => {
             let normId = normalizeID(row[0]);
@@ -962,13 +941,13 @@
             }
           });
           const wb = XLSX.utils.book_new(),
-                start = $("startDate").value,
-                end = $("endDate").value,
-                filteredJRMRows = state.jrmRows.filter(row => {
-                  let date = row[6];
-                  if (date instanceof Date) date = date.toISOString().slice(0, 10);
-                  return (!start || date >= start) && (!end || date <= end);
-                });
+            start = $("startDate").value,
+            end = $("endDate").value,
+            filteredJRMRows = state.jrmRows.filter(row => {
+              let date = row[6];
+              if (date instanceof Date) date = date.toISOString().slice(0, 10);
+              return (!start || date >= start) && (!end || date <= end);
+            });
           const jrmData = state.jrmHeader && filteredJRMRows ? [state.jrmHeader, ...filteredJRMRows] : [];
           const wsJRM = XLSX.utils.aoa_to_sheet(jrmData);
           XLSX.utils.book_append_sheet(wb, wsJRM, "JRM");
@@ -987,20 +966,20 @@
         
         function filterCards() {
           const input = $("searchInput").value.toLowerCase(),
-                start = $("startDate").value,
-                end = $("endDate").value,
-                status = $("statusDropdown").value,
-                cards = Array.from(document.getElementsByClassName("jrm-card"));
+            start = $("startDate").value,
+            end = $("endDate").value,
+            status = $("statusDropdown").value,
+            cards = Array.from(document.getElementsByClassName("jrm-card"));
           let count = 0;
           cards.forEach(card => {
             const id = card.getAttribute("data-intake-id").toLowerCase(),
-                  name = card.getAttribute("data-intake-name").toLowerCase(),
-                  tags = card.getAttribute("data-intake-tags").toLowerCase(),
-                  searchOk = id.includes(input) || name.includes(input) || tags.includes(input),
-                  cardDate = card.getAttribute("data-intake-date"),
-                  closed = card.getAttribute("data-closed"),
-                  cardStatus = card.getAttribute("data-status"),
-                  dateOk = (!start || cardDate >= start) && (!end || cardDate <= end);
+              name = card.getAttribute("data-intake-name").toLowerCase(),
+              tags = card.getAttribute("data-intake-tags").toLowerCase(),
+              searchOk = id.includes(input) || name.includes(input) || tags.includes(input),
+              cardDate = card.getAttribute("data-intake-date"),
+              closed = card.getAttribute("data-closed"),
+              cardStatus = card.getAttribute("data-status"),
+              dateOk = (!start || cardDate >= start) && (!end || cardDate <= end);
             if (status === "ofs") {
               card.style.display = cardStatus === "ofs" && searchOk && dateOk ? "" : "none";
               if (card.style.display === "") count++;
@@ -1013,7 +992,7 @@
           $("ofs-wrapper").style.display = status === "ofs" ? "block" : "none";
           $("counter").innerText = "Intakes Count: " + count;
         }
-        
+
         function showData(id) {
           $("total-content").classList.add("hidden");
           $("jrm-content").classList.add("hidden");
@@ -1028,13 +1007,13 @@
             setTimeout(() => window.dispatchEvent(new Event("resize")), 100);
           } else alert(`No chart data available for intake ENT-${id}`);
         }
-        
+
         function showSection(showId) {
           ["total-content", "jrm-content", "intake-charts"].forEach(id =>
             $(id).classList.toggle("hidden", id !== showId)
           );
         }
-        
+
         function init() {
           $("totalBtn").addEventListener("click", () => showSection("total-content"));
           $("jrmBtn").addEventListener("click", () => showSection("jrm-content"));
@@ -1043,7 +1022,7 @@
           fetchData();
           showSection("jrm-content");
         }
-        
+
         document.addEventListener("DOMContentLoaded", init);
       })();
     </script>
