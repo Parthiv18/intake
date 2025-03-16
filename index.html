@@ -751,7 +751,7 @@
               state.jrmNameMapping[normId] = newIntake.intakeName;
               state.jrmDateMapping[normId] = newIntake.intakeDate;
               const dispDate = new Date(newIntake.intakeDate).toLocaleDateString("en-US");
-              const newCardHtml = `<div id="card-ENT-${normId}" class="jrm-card" data-intake-id="${newIntake.intakeId}" data-intake-name="${newIntake.intakeName}" data-intake-tags="${newIntake.intakeTags}" data-intake-date="${newIntake.intakeDate}" data-status="jrm" data-closed="false">
+              const newCardHtml = `<div id="card-ENT-${normId}" class="jrm-card" data-intake-id="${newIntake.intakeId}" data-intake-name="${newIntake.intakeName}" data-intake-tags="${newIntake.intakeTags}" data-intake-date="${dispDate}" data-status="jrm" data-closed="false">
                 <h3><a href="https://jira.cibcatl.com/browse/ENT-${normId}" target="_blank">ENT-${normId} - ${newIntake.intakeName}</a></h3>
                 <p><strong>Date:</strong> ${dispDate}</p>
                 <p><strong>Comments:</strong> ${newIntake.intakeComments}</p>
