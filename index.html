@@ -171,6 +171,33 @@
       };
       // Global variable to track workflow status
       let workflowInProcess = false;
+
+      // Immediate check for workflow activity.
+      async function isWorkflowActive() {
+        try {
+          const url = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/actions/runs?status=in_progress`;
+          const response = await fetch(url, {
+            headers: {
+              Authorization: `token ${CONFIG.token}`,
+              Accept: "application/vnd.github+json"
+            }
+          });
+          const data = await response.json();
+          return data.total_count > 0;
+        } catch(e) {
+          console.error("Error checking workflow status", e);
+          return false;
+        }
+      }
+      
+      // Existing helper function to block actions based on global flag.
+      function blockIfWorkflowInProcess() {
+        if (workflowInProcess) {
+          alert("Workflow in process");
+          return true;
+        }
+        return false;
+      }
     </script>
     
     <script>
@@ -204,15 +231,6 @@
               console.error("Error checking workflow status", e);
             }
           }, 10000); // Poll every 10 seconds
-        }
-
-        // Helper function to block actions if workflow is running.
-        function blockIfWorkflowInProcess() {
-          if (workflowInProcess) {
-            alert("Workflow in process");
-            return true;
-          }
-          return false;
         }
         
         // ----- GitHub Excel Update Functions -----
@@ -446,10 +464,9 @@
             let found = false;
             for(let i = 1; i < data.length; i++){
               if(data[i][0] && data[i][0].toString().trim() === intakeId){
-                // For each updated value, update the corresponding excel column.
                 for(let key in updatedValues) {
-                  let tableIdx = parseInt(key); // tableIdx from our rendered table (>=2)
-                  let excelIdx = tableIdx - 1; // shift because "Intake Name" was inserted at index 1 in the table
+                  let tableIdx = parseInt(key);
+                  let excelIdx = tableIdx - 1;
                   data[i][excelIdx] = updatedValues[key];
                 }
                 found = true;
@@ -500,8 +517,11 @@
         }
         document.addEventListener('click', hideContextMenu);
         
-        function moveCard(card, newStatus) {
-          if(blockIfWorkflowInProcess()) return;
+        async function moveCard(card, newStatus) {
+          if(await isWorkflowActive()){
+            alert("Workflow in process");
+            return;
+          }
           let container;
           if (newStatus === 'jrm') container = document.getElementById('jrm-col');
           else if (newStatus === 'estimates') container = document.getElementById('estimates-col');
@@ -516,7 +536,7 @@
             }
             card.setAttribute('data-status', newStatus);
             const intakeId = card.getAttribute('data-intake-id');
-            updateCardStatusInExcel(intakeId, newStatus);
+            await updateCardStatusInExcel(intakeId, newStatus);
           }
         }
         
@@ -533,17 +553,25 @@
             options.forEach(option => {
               const li = document.createElement('li');
               li.textContent = 'Move to ' + option;
-              li.addEventListener("click", function() {
-                moveCard(card, option);
+              li.addEventListener("click", async function() {
+                if(await isWorkflowActive()){
+                    alert("Workflow in process");
+                    return;
+                }
+                await moveCard(card, option);
                 hideContextMenu();
               });
               ul.appendChild(li);
             });
             const deleteOption = document.createElement('li');
             deleteOption.textContent = 'Delete';
-            deleteOption.addEventListener("click", function() {
+            deleteOption.addEventListener("click", async function() {
+              if(await isWorkflowActive()){
+                  alert("Workflow in process");
+                  return;
+              }
               const intakeId = card.getAttribute('data-intake-id');
-              deleteCardFromExcel(intakeId);
+              await deleteCardFromExcel(intakeId);
               card.remove();
               hideContextMenu();
             });
@@ -748,8 +776,11 @@
             if (e.target.classList.contains("view-link"))
               showData(e.target.getAttribute("data-intake-id"));
           });
-          $("addButton").addEventListener("click", () => {
-            if(blockIfWorkflowInProcess()) return;
+          $("addButton").addEventListener("click", async () => {
+            if(await isWorkflowActive()){
+              alert("Workflow in process");
+              return;
+            }
             const formContainer = $("addFormContainer");
             formContainer.style.display = formContainer.style.display === "none" ? "block" : "none";
           });
@@ -758,7 +789,10 @@
           });
           $("addIntakeForm").addEventListener("submit", async function(e) {
             e.preventDefault();
-            if(blockIfWorkflowInProcess()) return;
+            if(await isWorkflowActive()){
+              alert("Workflow in process");
+              return;
+            }
             const formData = new FormData(this);
             const newIntake = {
               intakeId: formData.get("intakeId").trim(),
@@ -1111,35 +1145,6 @@
             XLSX.utils.book_append_sheet(wb, wsEmpty, "Total");
           }
           XLSX.writeFile(wb, "Export.xlsx");
-        }
-        
-        function filterCards() {
-          const input = $("searchInput").value.toLowerCase(),
-                start = $("startDate").value,
-                end = $("endDate").value,
-                status = $("statusDropdown").value,
-                cards = Array.from(document.getElementsByClassName("jrm-card"));
-          let count = 0;
-          cards.forEach(card => {
-            const id = card.getAttribute("data-intake-id").toLowerCase(),
-                  name = card.getAttribute("data-intake-name").toLowerCase(),
-                  tags = card.getAttribute("data-intake-tags").toLowerCase(),
-                  searchOk = id.includes(input) || name.includes(input) || tags.includes(input),
-                  cardDate = card.getAttribute("data-intake-date"),
-                  closed = card.getAttribute("data-closed"),
-                  cardStatus = card.getAttribute("data-status"),
-                  dateOk = (!start || cardDate >= start) && (!end || cardDate <= end);
-            if (status === "ofs") {
-              card.style.display = cardStatus === "ofs" && searchOk && dateOk ? "" : "none";
-              if (card.style.display === "") count++;
-            } else {
-              if (cardStatus === "ofs") card.style.display = "none";
-              else card.style.display = (status === "all" || (status === "closed" && closed === "true")) && searchOk && dateOk ? "" : "none", card.style.display === "" && count++;
-            }
-          });
-          $("non-ofs-container").style.display = status === "ofs" ? "none" : "block";
-          $("ofs-wrapper").style.display = status === "ofs" ? "block" : "none";
-          $("counter").innerText = "Intakes Count: " + count;
         }
         
         function showData(id) {
