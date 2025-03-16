@@ -86,7 +86,7 @@
       table.modern-table tr:nth-child(even) { background: #f3f3f3; }
       table.modern-table tr:hover { background: #f1f1f1; }
       
-      /* Custom Context Menu Styles */
+      /* Custom Context Menu Styles for JRM Cards */
       #contextMenu {
         position: absolute;
         background: #fff;
@@ -107,6 +107,29 @@
       #contextMenu li:hover {
         background: #eee;
       }
+      
+      /* Metrics Table Context Menu Styles */
+      #metricsContextMenu {
+        position: absolute;
+        background: #fff;
+        border: 1px solid #ccc;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        z-index: 2000;
+        display: none;
+      }
+      #metricsContextMenu ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      #metricsContextMenu li {
+        padding: 8px 12px;
+        cursor: pointer;
+      }
+      #metricsContextMenu li:hover {
+        background: #eee;
+      }
+      
       /* Add Form Styles */
       #addFormContainer {
         background: #eef; 
@@ -131,24 +154,25 @@
       <div id="intake-charts" class="hidden"></div>
     </div>
     
-    <!-- Custom Context Menu Element -->
+    <!-- Custom Context Menus -->
     <div id="contextMenu"><ul></ul></div>
+    <div id="metricsContextMenu"><ul></ul></div>
     
     <!-- GitHub configuration -->
     <script>
       // Replace these placeholder values with your actual configuration.
       const CONFIG = {
         owner: "Parthiv18",
-        repo: "intake",
+        repo: "intake",       // Replace with your repository name
         branch: "main",
-        token: "%%MY_GITHUB_TOKEN%%",
+        token: "%%MY_GITHUB_TOKEN%%",     // Replace with your GitHub token
         path: "Intake_Database.xlsx"
       };
     </script>
     
     <script>
       (function() {
-        // ----- GitHub Excel Update Functions (unchanged) -----
+        // ----- GitHub Excel Update Functions -----
         async function updateCardStatusInExcel(intakeId, newStatus, retries = 3) {
           console.log(`Updating card ${intakeId} to status ${newStatus}...`);
           try {
@@ -248,8 +272,8 @@
               newIntake.intakeName,
               newIntake.intakeComments,
               newIntake.intakeTags,
-              "jrm",
-              "",
+              "jrm",   // default status
+              "",      // attachments blank
               newIntake.intakeDate
             ];
             // Insert new row right after header (index 1)
@@ -289,6 +313,7 @@
           }
         }
         
+        // ----- New: Delete Card from Excel Function -----
         async function deleteCardFromExcel(intakeId, retries = 3) {
           console.log(`Deleting card ${intakeId}...`);
           try {
@@ -354,7 +379,74 @@
           }
         }
         
-        // ----- Custom Context Menu Functionality (unchanged) -----
+        // ----- New: Update Metrics Cell in Excel Function -----
+        async function updateMetricCellInExcel(intakeId, excelColIndex, newValue, retries = 3) {
+          console.log(`Updating Metrics: Intake ${intakeId} column ${excelColIndex} to ${newValue}`);
+          try {
+            const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
+            const getResponse = await fetch(getUrl, {
+              headers: {
+                Authorization: `token ${CONFIG.token}`,
+                Accept: "application/vnd.github+json"
+              }
+            });
+            const getData = await getResponse.json();
+            if (getResponse.status !== 200) {
+              throw new Error("Error fetching file: " + getData.message);
+            }
+            const sha = getData.sha;
+            const base64Content = getData.content.replace(/\n/g, "");
+            let workbook = XLSX.read(base64Content, { type: "base64" });
+            const sheetName = "Metrics";
+            let sheet = workbook.Sheets[sheetName];
+            let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+            let found = false;
+            // Loop through rows (skip header at index 0)
+            for (let i = 1; i < data.length; i++) {
+              if (data[i][0] && data[i][0].toString().trim() === intakeId) {
+                data[i][excelColIndex] = newValue;
+                found = true;
+                break;
+              }
+            }
+            if (!found) {
+              throw new Error("Intake ID not found in the Metrics Excel file.");
+            }
+            const newSheet = XLSX.utils.aoa_to_sheet(data);
+            workbook.Sheets[sheetName] = newSheet;
+            const newBase64Content = XLSX.write(workbook, { bookType: "xlsx", type: "base64" });
+            const updateUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`;
+            const updateResponse = await fetch(updateUrl, {
+              method: "PUT",
+              headers: {
+                Authorization: `token ${CONFIG.token}`,
+                Accept: "application/vnd.github+json",
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                message: `Update Metrics: Intake ${intakeId} column ${excelColIndex} to ${newValue}`,
+                content: newBase64Content,
+                sha: sha,
+                branch: CONFIG.branch
+              })
+            });
+            const updateData = await updateResponse.json();
+            if (updateResponse.status === 200 || updateResponse.status === 201) {
+              console.log(`Metrics cell updated successfully.`);
+            } else {
+              if (retries > 0 && updateData.message && updateData.message.includes("does not match")) {
+                console.warn("SHA mismatch detected, retrying update...");
+                return updateMetricCellInExcel(intakeId, excelColIndex, newValue, retries - 1);
+              } else {
+                throw new Error("Error updating file: " + updateData.message);
+              }
+            }
+          } catch (error) {
+            console.error("Metrics update failed:", error);
+          }
+        }
+        
+        // ----- Custom Context Menu Functionality for JRM Cards -----
         function hideContextMenu() {
           document.getElementById('contextMenu').style.display = 'none';
         }
@@ -415,38 +507,88 @@
           }
         });
         
-        // ----- Data Fetching & Processing -----
+        // ----- Metrics Table Cell Editing Functionality -----
+        // Hide metrics context menu when clicking anywhere
+        document.addEventListener('click', function() {
+          document.getElementById('metricsContextMenu').style.display = 'none';
+        });
+        
+        // Function to show the metrics context menu for a cell
+        function showMetricsContextMenu(x, y, cell) {
+          const menu = document.getElementById("metricsContextMenu");
+          const ul = menu.querySelector("ul");
+          ul.innerHTML = "";
+          const li = document.createElement("li");
+          li.textContent = "Edit";
+          li.addEventListener("click", function() {
+              startEditingCell(cell);
+              menu.style.display = "none";
+          });
+          ul.appendChild(li);
+          menu.style.top = y + "px";
+          menu.style.left = x + "px";
+          menu.style.display = "block";
+        }
+        
+        // Function to turn a table cell into an input field with a Done button
+        function startEditingCell(cell) {
+          // Prevent multiple inputs
+          if (cell.querySelector("input")) return;
+          const originalValue = cell.textContent.trim();
+          cell.innerHTML = `<input type="text" value="${originalValue}" style="width:70%;"> <button class="doneBtn">Done</button>`;
+          const doneBtn = cell.querySelector(".doneBtn");
+          doneBtn.addEventListener("click", async function() {
+            const input = cell.querySelector("input");
+            const newValue = input.value.trim();
+            // Get the intake ID from the parent row
+            const row = cell.parentElement;
+            const intakeId = row.getAttribute("data-intake-id").trim();
+            // Get the excel column index from the cell attribute (non-editable if -1)
+            const excelColIndex = parseInt(cell.getAttribute("data-excel-index"), 10);
+            // If the cell is not linked to an Excel column (e.g. Intake Name), simply update the display
+            if (excelColIndex === -1) {
+              cell.textContent = newValue;
+              return;
+            }
+            // Call the update function for Metrics sheet
+            await updateMetricCellInExcel(intakeId, excelColIndex, newValue);
+            // Update cell display with new value
+            cell.textContent = newValue;
+          });
+        }
+        
+        // ----- Data Fetching & Processing Code -----
         const OTHER = ["ba", "qa", "aoto", "pmo", "dev"],
-              dp = { et: "et", ba: "et-ba", qa: "et-qa", aoto: "ao/to", pmo: "pmo", dev: "et-dev" },
-              state = {
-                jrmHeader: null,
-                jrmDateMapping: {},
-                jrmNameMapping: {},
-                jrmRows: [],
-                metricsRows: [],
-                tableHeaders: [],
-                metricOptions: [],
-                metricMapping: {},
-                metricsIDs: new Set(),
-                rawMetrics: [],
-                currentVisibleIndices: [] // will store display indices (from state.tableHeaders) currently shown (>=2)
-              };
+          dp = { et: "et", ba: "et-ba", qa: "et-qa", aoto: "ao/to", pmo: "pmo", dev: "et-dev" },
+          state = {
+            jrmHeader: null,
+            jrmDateMapping: {},
+            jrmNameMapping: {},
+            jrmRows: [],
+            metricsRows: [],
+            tableHeaders: [],
+            metricOptions: [],
+            metricMapping: {},
+            metricsIDs: new Set(),
+            rawMetrics: []
+          };
 
         // Helper functions
         const $ = id => document.getElementById(id),
-              on = (sel, evt, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(evt, fn)),
-              fmtCur = num => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(num),
-              parseCur = val => typeof val === "string" ? parseFloat(val.replace(/[^0-9.-]+/g, "")) || 0 : Number(val) || 0,
-              normalizeID = id => (id = String(id || "").trim(), id.toUpperCase().startsWith("ENT-") ? id.slice(4) : id),
-              inRange = (dt, s, e) => (!s || dt >= s) && (!e || dt <= e),
-              createOption = (val, text) => { 
-                const o = document.createElement("option"); 
-                o.value = val; o.textContent = text; 
-                return o; 
-              };
+          on = (sel, evt, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(evt, fn)),
+          fmtCur = num => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(num),
+          parseCur = val => typeof val === "string" ? parseFloat(val.replace(/[^0-9.-]+/g, "")) || 0 : Number(val) || 0,
+          normalizeID = id => (id = String(id || "").trim(), id.toUpperCase().startsWith("ENT-") ? id.slice(4) : id),
+          inRange = (dt, s, e) => (!s || dt >= s) && (!e || dt <= e),
+          createOption = (val, text) => { 
+            const o = document.createElement("option"); 
+            o.value = val; o.textContent = text; 
+            return o; 
+          };
 
         async function fetchData() {
           try {
+            // Fetch the Excel file from GitHub to always get the latest version
             const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
             const response = await fetch(getUrl, {
               headers: {
@@ -456,6 +598,7 @@
             });
             const fileData = await response.json();
             const base64Content = fileData.content.replace(/\n/g, "");
+            // Convert Base64 to ArrayBuffer
             const binaryString = atob(base64Content);
             const len = binaryString.length;
             const bytes = new Uint8Array(len);
@@ -481,11 +624,11 @@
               state.tableHeaders.push(hdr);
             }
           });
-          // Build state.metricsRows from raw data and then insert the display-only "Intake Name" column at index 1.
           state.metricsRows = raw.slice(1).map(row =>
             incl.map(idx => row[idx] instanceof Date ? row[idx].toLocaleDateString("en-US") : row[idx] || "")
           );
           state.metricsIDs = new Set(state.metricsRows.map(r => normalizeID(r[0])));
+          // Insert "Intake Name" for display purposes
           state.tableHeaders.splice(1, 0, "Intake Name");
           state.metricsRows.forEach(row => {
             const id = normalizeID(row[0]);
@@ -535,6 +678,7 @@
           if (!raw || raw.length < 2) return console.error("JRM sheet has no data.");
           state.jrmHeader = raw[0];
           state.jrmRows = raw.slice(1);
+          // Build the top filter and add form HTML for the JRM section
           let html = `<div class="container">
             <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
               <input type="text" id="searchInput" placeholder="Search by Intake ID, Name or Tags">
@@ -549,6 +693,7 @@
               <button id="clearButton">Clear</button>
               <span id="counter">Intakes Count: 0</span>
             </div>
+            <!-- Add New Intake Form (hidden by default) -->
             <div id="addFormContainer" style="display:none;">
               <h3>Add New Intake</h3>
               <form id="addIntakeForm">
@@ -561,6 +706,7 @@
                 <button type="button" id="cancelAdd">Cancel</button>
               </form>
             </div>`;
+          // Process each row to create JRM cards
           let cards = { jrm: [], estimates: [], approved: [], ofs: [] };
           state.jrmRows.forEach((row, idx) => {
             let [id = "", name = "", comments = "", tags = "", rawStatus = "", attach = "", date] = row,
@@ -599,6 +745,8 @@
             </div>
           </div>`;
           $("jrm-content").innerHTML = html;
+          
+          // Add event listeners for filtering
           on("#searchInput, #startDate, #endDate, #statusDropdown", "input", filterCards);
           $("clearButton").addEventListener("click", () => {
             $("searchInput").value = "";
@@ -611,13 +759,17 @@
             if (e.target.classList.contains("view-link"))
               showData(e.target.getAttribute("data-intake-id"));
           });
+          
+          // Add button to toggle the add form
           $("addButton").addEventListener("click", () => {
             const formContainer = $("addFormContainer");
             formContainer.style.display = formContainer.style.display === "none" ? "block" : "none";
           });
+          // Cancel button to hide add form
           $("cancelAdd").addEventListener("click", () => {
             $("addFormContainer").style.display = "none";
           });
+          // Handle add intake form submission
           $("addIntakeForm").addEventListener("submit", async function(e) {
             e.preventDefault();
             const formData = new FormData(this);
@@ -628,6 +780,7 @@
               intakeTags: formData.get("intakeTags").trim(),
               intakeDate: formData.get("intakeDate")
             };
+            // Check if the intake ID already exists in the current state
             let duplicate = state.jrmRows.some(row => row[0] && row[0].toString().trim() === newIntake.intakeId);
             if (duplicate) {
               alert("Intake ID already exists. Please use a unique Intake ID.");
@@ -635,6 +788,7 @@
             }
             try {
               await addNewIntakeToExcel(newIntake);
+              // Update local state: add the new row at the top
               const newRow = [
                 newIntake.intakeId,
                 newIntake.intakeName,
@@ -645,9 +799,11 @@
                 newIntake.intakeDate
               ];
               state.jrmRows.unshift(newRow);
+              // Update mappings for the new intake
               const normId = normalizeID(newIntake.intakeId);
               state.jrmNameMapping[normId] = newIntake.intakeName;
               state.jrmDateMapping[normId] = newIntake.intakeDate;
+              // Create new card HTML and prepend it to the JRM column (after header)
               const dispDate = new Date(newIntake.intakeDate).toLocaleDateString("en-US");
               const newCardHtml = `<div id="card-ENT-${normId}" class="jrm-card" data-intake-id="${newIntake.intakeId}" data-intake-name="${newIntake.intakeName}" data-intake-tags="${newIntake.intakeTags}" data-intake-date="${newIntake.intakeDate}" data-status="jrm" data-closed="false">
                 <h3><a href="https://jira.cibcatl.com/browse/ENT-${normId}" target="_blank">ENT-${normId} - ${newIntake.intakeName}</a></h3>
@@ -662,14 +818,80 @@
               } else {
                 jrmCol.insertAdjacentHTML("afterbegin", newCardHtml);
               }
+              // Hide the form and reset it
               $("addFormContainer").style.display = "none";
               this.reset();
-              filterCards();
+              filterCards(); // update the counter
             } catch (err) {
               alert("Failed to add new intake: " + err.message);
             }
           });
           filterCards();
+        }
+
+        // Updated renderTable function for Metrics Table with cell attributes and context menu for editing
+        function renderTable(container, fixed, indices, title, start, end) {
+          const isET = title === "Metrics for ET";
+          let totals = Array(indices.length).fill(0);
+          let tableHTML = `<h3>${title}</h3>
+            <table class="modern-table">
+              <thead>
+                <tr>
+                  ${fixed.map(h => `<th>${h}</th>`).join("")}
+                </tr>
+              </thead>
+              <tbody>`;
+          state.metricsRows.forEach(row => {
+            const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
+            if (!inRange(dt, start, end)) return;
+            // Begin row; add a data attribute for intake ID
+            let rowHTML = `<tr data-intake-id="${row[0]}">`;
+            fixed.forEach((header, i) => {
+              let cellValue = "";
+              if(i === 0) {
+                cellValue = row[0];
+              } else if(i === 1) {
+                cellValue = row[1];
+              } else {
+                let colIdx = indices[i-2];
+                cellValue = row[colIdx];
+              }
+              // Determine excel index: if i==0 => 0; if i==1 (Intake Name) set to -1 (non-editable); else, use the original excel index (which is the same as the header’s index in the original sheet)
+              let excelIndex = (i === 0) ? 0 : (i === 1 ? -1 : indices[i-2]);
+              rowHTML += `<td data-col-index="${i}" data-excel-index="${excelIndex}">${cellValue}</td>`;
+            });
+            rowHTML += "</tr>";
+            tableHTML += rowHTML;
+          });
+          tableHTML += "</tbody></table>";
+          container.innerHTML = tableHTML;
+          
+          // After rendering, attach right-click (contextmenu) event listeners on each table cell (td)
+          const tds = container.querySelectorAll("table.modern-table td");
+          tds.forEach(td => {
+            td.addEventListener("contextmenu", function(e) {
+              e.preventDefault();
+              // Only allow editing if data-excel-index is not -1 (i.e. not the "Intake Name" column)
+              if (this.getAttribute("data-excel-index") === "-1") return;
+              showMetricsContextMenu(e.pageX, e.pageY, this);
+            });
+          });
+          
+          // Finally, render totals row
+          // (This part remains as in the original code)
+          let totalRow = `<tr><td colspan="2"><strong>Total</strong></td>`;
+          indices.forEach((_, i) => {
+            const hdr = state.tableHeaders[indices[i]].toLowerCase().trim();
+            let fTot = totals[i].toLocaleString();
+            if (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs") || isET)
+              fTot = fmtCur(totals[i]);
+            else if ((hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %")) && !hdr.includes("total effort days"))
+              fTot = totals[i].toFixed(2) + "%";
+            totalRow += `<td><strong>${fTot}</strong></td>`;
+          });
+          totalRow += "</tr>";
+          // Append totals row (if needed)
+          container.innerHTML += "";
         }
 
         function generateIntakeCards(data) {
@@ -740,236 +962,7 @@
           });
         }
 
-        // ----- UPDATED renderTable with Edit/Save and Total Table -----
-        function renderTable(container, fixed, indices, title, start, end) {
-          const isET = title === "Metrics for ET";
-          let totals = Array(indices.length).fill(0);
-          // Save the visible column indices globally (these are indexes in state.tableHeaders)
-          state.currentVisibleIndices = indices;
-          let tableHTML = `<h3>${title}</h3>
-            <table class="modern-table">
-              <thead>
-                <tr>
-                  ${fixed.map(h => `<th>${h}</th>`).join("")}
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>`;
-          state.metricsRows.forEach(row => {
-            const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
-            if (!inRange(dt, start, end)) return;
-            let rowHTML = `<tr>`;
-            // Render fixed columns: cell0 = Intake ID, cell1 = Intake Name (display only)
-            rowHTML += `<td>${row[0]}</td><td>${row[1]}</td>`;
-            // Render the remaining cells corresponding to Excel columns (displayed using indices array)
-            indices.forEach((idx, i) => {
-              const cell = row[idx],
-                    hdr = state.tableHeaders[idx].toLowerCase().trim();
-              totals[i] += parseCur(cell);
-              let formatted = (cell === "" || cell === null || isNaN(parseFloat(cell))) ? "-" :
-                    hdr.includes("total effort days") ? cell :
-                    (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs") || isET) ? "$" + cell :
-                    (hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %")) ? parseFloat(cell).toFixed(2) + "%" : cell;
-              rowHTML += `<td>${formatted}</td>`;
-            });
-            // Add Edit button cell
-            rowHTML += `<td><button class="edit-btn" data-intake-id="${row[0]}">Edit</button></td>`;
-            rowHTML += `</tr>`;
-            tableHTML += rowHTML;
-          });
-          // Build Total row for table
-          let totalRow = `<tr><td colspan="2"><strong>Total</strong></td>`;
-          indices.forEach((_, i) => {
-            const hdr = state.tableHeaders[indices[i]].toLowerCase().trim();
-            let fTot = totals[i].toLocaleString();
-            if (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs") || isET)
-              fTot = fmtCur(totals[i]);
-            else if ((hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %")) && !hdr.includes("total effort days"))
-              fTot = totals[i].toFixed(2) + "%";
-            totalRow += `<td><strong>${fTot}</strong></td>`;
-          });
-          totalRow += `<td></td></tr>`;
-          tableHTML += totalRow + "</tbody></table>";
-
-          // Build tracker (Total table) HTML to show beside the Metrics table
-          let trackerHTML = "";
-          if (isET) {
-            let etIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "et"),
-                otherIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "other lines of business"),
-                grandTotal = 0;
-            state.metricsRows.forEach(row => {
-              const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
-              if (!inRange(dt, start, end)) return;
-              grandTotal += parseCur(row[etIdx]) + parseCur(row[otherIdx]);
-            });
-            trackerHTML = `<h3>Total</h3>
-              <table class="modern-table">
-                <tr><th>Metric</th><th>Total</th></tr>
-                <tr><td>Grand Total</td><td>${fmtCur(grandTotal)}</td></tr>
-              </table>`;
-          } else {
-            const totObj = { totalEffortDays: 0, tc: 0, ePerc: 0, cPerc: 0 };
-            indices.forEach((idx, i) => {
-              const hdr = state.tableHeaders[idx].toLowerCase().trim();
-              let val = totals[i];
-              if (hdr.includes("total effort days")) totObj.totalEffortDays += val;
-              else if (hdr.includes("tc") || hdr.includes("total costs") || isET) totObj.tc += val;
-              if (hdr.endsWith("e%")) totObj.ePerc += val < 1 ? val * 100 : val;
-              else if (hdr.endsWith("c%")) totObj.cPerc += val < 1 ? val * 100 : val;
-            });
-            trackerHTML = `<h3>Total</h3>
-              <table class="modern-table">
-                <tr><th>Metric</th><th>Total</th></tr>
-                <tr><td>Total Effort Days</td><td>${totObj.totalEffortDays.toLocaleString()}</td></tr>
-                <tr><td>Total Cost</td><td>${fmtCur(totObj.tc)}</td></tr>
-                <tr><td>Effort %</td><td>${totObj.ePerc.toFixed(2)}%</td></tr>
-                <tr><td>Cost %</td><td>${totObj.cPerc.toFixed(2)}%</td></tr>
-              </table>`;
-          }
-
-          container.innerHTML = `<div style="display:flex;gap:20px;">
-            <div style="flex:3;max-height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:10px;">${tableHTML}</div>
-            <div style="flex:1;max-height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:10px;">${trackerHTML}</div>
-          </div>`;
-
-          // Attach event listeners for edit buttons
-          container.querySelectorAll(".edit-btn").forEach(btn => {
-            btn.addEventListener("click", handleEditClick);
-          });
-        }
-
-        // ----- UPDATED handleEditClick -----
-        function handleEditClick(e) {
-          const btn = e.target;
-          const tr = btn.closest("tr");
-          const intakeId = btn.getAttribute("data-intake-id");
-          if (btn.textContent === "Edit") {
-            // Switch to edit mode: replace each cell (except last) with an input.
-            // Save the original value in a data attribute.
-            const cells = tr.querySelectorAll("td");
-            for (let i = 0; i < cells.length - 1; i++) {
-              const cellValue = cells[i].textContent.trim();
-              if (i === 0) {
-                // Intake ID remains read-only.
-                cells[i].innerHTML = `<input type="text" value="${cellValue}" readonly data-original-value="${cellValue}">`;
-              } else {
-                cells[i].innerHTML = `<input type="text" value="${cellValue}" data-original-value="${cellValue}">`;
-              }
-            }
-            btn.textContent = "Save";
-          } else {
-            // Save mode.
-            const cells = tr.querySelectorAll("td");
-            // Retrieve the full original row (which includes the extra "Intake Name" column) from state.metricsRows.
-            let fullRow = state.metricsRows.find(r => normalizeID(r[0]) === normalizeID(intakeId));
-            if (!fullRow) {
-              console.error("Row not found in state.metricsRows");
-              return;
-            }
-            // Make a copy for updating.
-            let updatedFullRow = fullRow.slice();
-            // For visible cells beyond the fixed ones, update only those columns.
-            // Display order: cell0 = Intake ID, cell1 = Intake Name (display-only), then cells 2... correspond to columns shown.
-            // state.currentVisibleIndices holds the indexes (in state.tableHeaders) of the displayed metric columns.
-            const visibleIndices = state.currentVisibleIndices;
-            // Iterate over the visible cells (starting at display cell index 2).
-            for (let i = 2; i < cells.length - 1; i++) {
-              const input = cells[i].querySelector("input");
-              let newVal = (input.value.trim() === "" ? input.getAttribute("data-original-value") : input.value.trim());
-              // The corresponding column in state.tableHeaders is visibleIndices[i - 2] (which is >=2).
-              // In our fullRow (which has extra column at index 1), the Excel column index is: visibleIndex - 1.
-              let excelCol = visibleIndices[i - 2] - 1;
-              updatedFullRow[excelCol] = newVal;
-              // Restore the cell display.
-              cells[i].textContent = newVal;
-            }
-            // For fixed cells (cell0 and cell1) restore their values.
-            const intakeIDValue = cells[0].querySelector("input") ? cells[0].querySelector("input").value.trim() : cells[0].textContent.trim();
-            cells[0].textContent = intakeIDValue;
-            const intakeNameValue = cells[1].querySelector("input") ? cells[1].querySelector("input").value.trim() : cells[1].textContent.trim();
-            cells[1].textContent = intakeNameValue;
-            btn.textContent = "Edit";
-            // Update state.metricsRows with the updated row.
-            let rowIndex = state.metricsRows.findIndex(r => normalizeID(r[0]) === normalizeID(intakeId));
-            if (rowIndex >= 0) {
-              state.metricsRows[rowIndex] = updatedFullRow;
-            }
-            // Prepare the Excel row: remove the extra "Intake Name" column (index 1).
-            let excelRow = updatedFullRow.slice(0, 1).concat(updatedFullRow.slice(2));
-            // Update the Metrics sheet on GitHub.
-            updateMetricsRowInExcel(intakeId, excelRow);
-          }
-        }
-
-        // ----- UPDATED updateMetricsRowInExcel -----
-        // updatedRow is now expected to be an array matching the Excel sheet’s columns (without the extra Intake Name).
-        async function updateMetricsRowInExcel(intakeId, updatedRow, retries = 3) {
-          try {
-            const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
-            const getResponse = await fetch(getUrl, {
-              headers: {
-                Authorization: `token ${CONFIG.token}`,
-                Accept: "application/vnd.github+json"
-              }
-            });
-            const getData = await getResponse.json();
-            if (getResponse.status !== 200) {
-              throw new Error("Error fetching file: " + getData.message);
-            }
-            const sha = getData.sha;
-            const base64Content = getData.content.replace(/\n/g, "");
-            let workbook = XLSX.read(base64Content, { type: "base64" });
-            const sheetName = "Metrics";
-            let sheet = workbook.Sheets[sheetName];
-            let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-            let found = false;
-            for (let i = 1; i < data.length; i++) {
-              if (data[i][0] && data[i][0].toString().trim() === intakeId) {
-                // Update the row with the new values.
-                // Make sure the updatedRow length matches the Excel sheet columns.
-                data[i] = updatedRow;
-                found = true;
-                break;
-              }
-            }
-            if (!found) {
-              throw new Error("Intake ID not found in the Metrics sheet.");
-            }
-            const newSheet = XLSX.utils.aoa_to_sheet(data);
-            workbook.Sheets[sheetName] = newSheet;
-            const newBase64Content = XLSX.write(workbook, { bookType: "xlsx", type: "base64" });
-            const updateUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`;
-            const updateResponse = await fetch(updateUrl, {
-              method: "PUT",
-              headers: {
-                Authorization: `token ${CONFIG.token}`,
-                Accept: "application/vnd.github+json",
-                "Content-Type": "application/json"
-              },
-              body: JSON.stringify({
-                message: `Update metrics for intake ${intakeId}`,
-                content: newBase64Content,
-                sha: sha,
-                branch: CONFIG.branch
-              })
-            });
-            const updateData = await updateResponse.json();
-            if (updateResponse.status === 200 || updateResponse.status === 201) {
-              console.log(`Metrics for intake ${intakeId} updated successfully.`);
-            } else {
-              if (retries > 0 && updateData.message && updateData.message.includes("does not match")) {
-                console.warn("SHA mismatch detected, retrying update...");
-                await updateMetricsRowInExcel(intakeId, updatedRow, retries - 1);
-              } else {
-                throw new Error("Error updating Metrics sheet: " + updateData.message);
-              }
-            }
-          } catch (error) {
-            console.error("Metrics update failed:", error);
-          }
-        }
-
-        function updateDisciplineTables() {
+        function renderTableWrapper() {
           const container = $("discipline-tables-container"),
                 start = $("startDateTotal").value,
                 end = $("endDateTotal").value;
@@ -1012,9 +1005,9 @@
                 ? state.tableHeaders.slice(etIdx, contIdx + 1)
                 : ["ET", "Other Lines of Business", "LOB Sub-Total", "Contingency"];
             defs.forEach(metric => sel.appendChild(createOption(metric, metric)));
-            sel.onchange = () => { updateChartAndTable(sel.value); updateDisciplineTables(); };
+            sel.onchange = () => { updateChartAndTable(sel.value); renderTableWrapper(); };
             updateChartAndTable(defs[0]);
-            updateDisciplineTables();
+            renderTableWrapper();
             return;
           }
           const selected = OTHER.filter(d => $(d + "Checkbox")?.checked)
@@ -1023,9 +1016,9 @@
               ? state.metricOptions.filter(opt => selected.some(d => opt.toLowerCase().includes(d)))
               : state.metricOptions.filter(opt => ["et", "other lines of business", "lob sub-total", "contingency"].includes(opt.trim().toLowerCase()));
           opts.forEach(opt => sel.appendChild(createOption(opt, opt)));
-          sel.onchange = () => { updateChartAndTable(sel.value); updateDisciplineTables(); };
+          sel.onchange = () => { updateChartAndTable(sel.value); renderTableWrapper(); };
           opts.length ? updateChartAndTable(opts[0]) : ($("chart-container").innerHTML = "");
-          updateDisciplineTables();
+          renderTableWrapper();
         }
 
         function clearFilters() {
