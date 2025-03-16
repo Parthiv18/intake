@@ -694,19 +694,28 @@
           const container = $("discipline-tables-container"),
                 start = $("startDateTotal").value,
                 end = $("endDateTotal").value;
+          // If no checkboxes are checked, show only default columns:
+          // Intake ID, Intake Name, ET, Other Lines of Business, Total Ongoing Costs, LOB Sub-Total, Contingency, Action
           if (!OTHER.some(d => $(d + "Checkbox")?.checked)) {
-            const fixed = ["Intake ID", "Intake Name"],
-                  indices = [];
-            for (let i = 2; i < state.tableHeaders.length; i++) {
-              fixed.push(state.tableHeaders[i]);
-              indices.push(i);
-            }
+            const defaultCols = ["ET", "Other Lines of Business", "Total Ongoing Costs", "LOB Sub-Total", "Contingency"];
+            const fixed = ["Intake ID", "Intake Name"];
+            const indices = [];
+            defaultCols.forEach(col => {
+              const idx = state.tableHeaders.findIndex(
+                h => h.trim().toLowerCase() === col.trim().toLowerCase()
+              );
+              if (idx > -1) {
+                fixed.push(state.tableHeaders[idx]);
+                indices.push(idx);
+              }
+            });
             if (!indices.length) {
               return container.innerHTML = "";
             }
             renderTable(container, fixed, indices, "Metrics", start, end);
             return;
           }
+          // Otherwise, show columns based on the checkboxes selected
           const checked = OTHER.filter(d => $(d + "Checkbox")?.checked),
                 fixed = ["Intake ID", "Intake Name"],
                 indices = [];
