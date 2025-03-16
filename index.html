@@ -485,6 +485,7 @@
             incl.map(idx => row[idx] instanceof Date ? row[idx].toLocaleDateString("en-US") : row[idx] || "")
           );
           state.metricsIDs = new Set(state.metricsRows.map(r => normalizeID(r[0])));
+          // Insert the Intake Name column (for display only; not sent to Excel)
           state.tableHeaders.splice(1, 0, "Intake Name");
           state.metricsRows.forEach(row => {
             const id = normalizeID(row[0]);
@@ -739,7 +740,7 @@
           });
         }
 
-        // ----- UPDATED renderTable function with Edit/Save and Total Table -----
+        // ----- UPDATED renderTable with Edit/Save and Total Table -----
         function renderTable(container, fixed, indices, title, start, end) {
           const isET = title === "Metrics for ET";
           let totals = Array(indices.length).fill(0);
@@ -756,9 +757,9 @@
             const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
             if (!inRange(dt, start, end)) return;
             let rowHTML = `<tr>`;
-            // Intake ID and Intake Name columns
+            // Render fixed columns: cell0 is Intake ID, cell1 is Intake Name (display only)
             rowHTML += `<td>${row[0]}</td><td>${row[1]}</td>`;
-            // Metrics cells
+            // Render the remaining cells (these correspond to Excel columns starting at index 2)
             indices.forEach((idx, i) => {
               const cell = row[idx],
                     hdr = state.tableHeaders[idx].toLowerCase().trim();
@@ -774,7 +775,7 @@
             rowHTML += `</tr>`;
             tableHTML += rowHTML;
           });
-          // Total row for table
+          // Build Total row for table
           let totalRow = `<tr><td colspan="2"><strong>Total</strong></td>`;
           indices.forEach((_, i) => {
             const hdr = state.tableHeaders[indices[i]].toLowerCase().trim();
@@ -788,7 +789,7 @@
           totalRow += `<td></td></tr>`;
           tableHTML += totalRow + "</tbody></table>";
 
-          // Compute tracker HTML for the Total table (displayed beside the Metrics table)
+          // Build tracker (Total table) HTML to show beside the Metrics table
           let trackerHTML = "";
           if (isET) {
             let etIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "et"),
@@ -841,38 +842,48 @@
           const tr = btn.closest("tr");
           const intakeId = btn.getAttribute("data-intake-id");
           if (btn.textContent === "Edit") {
-            // Switch to edit mode: replace each cell (except the last) with an input field
+            // Switch to edit mode: replace each cell (except the last) with an input field.
+            // Also store the original value in a data attribute.
             const cells = tr.querySelectorAll("td");
             for (let i = 0; i < cells.length - 1; i++) {
               const cellValue = cells[i].textContent.trim();
+              // For Intake ID (first cell), leave read-only.
               if (i === 0) {
-                // Intake ID remains read-only
-                cells[i].innerHTML = `<input type="text" value="${cellValue}" readonly>`;
+                cells[i].innerHTML = `<input type="text" value="${cellValue}" readonly data-original-value="${cellValue}">`;
               } else {
-                cells[i].innerHTML = `<input type="text" value="${cellValue}">`;
+                cells[i].innerHTML = `<input type="text" value="${cellValue}" data-original-value="${cellValue}">`;
               }
             }
             btn.textContent = "Save";
           } else {
-            // Save mode: collect updated values and restore view mode
+            // Save mode: collect updated values and restore view mode.
+            // Build an array for the Excel row that matches the original Metrics sheet.
+            // The table row has: cell0 = Intake ID, cell1 = Intake Name (display only), then remaining cells.
             const cells = tr.querySelectorAll("td");
-            let updatedRow = [];
+            let updatedRowForExcel = [];
             for (let i = 0; i < cells.length - 1; i++) {
               const input = cells[i].querySelector("input");
+              let value;
+              // If input is empty, use its original value.
               if (input) {
-                updatedRow.push(input.value);
-                cells[i].textContent = input.value;
+                value = input.value.trim() === "" ? input.getAttribute("data-original-value") : input.value.trim();
               } else {
-                updatedRow.push(cells[i].textContent.trim());
+                value = cells[i].textContent.trim();
               }
+              // For the second cell (Intake Name), skip it when sending to Excel.
+              if (i === 1) continue;
+              updatedRowForExcel.push(value);
+              // Restore the cell display with the (possibly updated) value.
+              cells[i].textContent = value;
             }
             btn.textContent = "Edit";
-            // Update the Metrics sheet on GitHub with the new row values
-            updateMetricsRowInExcel(intakeId, updatedRow);
+            // Now update the Metrics sheet for this row in Excel.
+            updateMetricsRowInExcel(intakeId, updatedRowForExcel);
           }
         }
 
-        // Function to update the Metrics sheet in Excel for a given Intake ID row
+        // Function to update the Metrics sheet in Excel for a given Intake ID row.
+        // updatedRowForExcel should be an array matching the Excel file’s columns.
         async function updateMetricsRowInExcel(intakeId, updatedRow, retries = 3) {
           try {
             const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
@@ -895,7 +906,13 @@
             let found = false;
             for (let i = 1; i < data.length; i++) {
               if (data[i][0] && data[i][0].toString().trim() === intakeId) {
-                data[i] = updatedRow;
+                // Instead of replacing the entire row, update only the cells that are in our updatedRow.
+                // Our updatedRow does not include the second column ("Intake Name").
+                // So we update column 0 (Intake ID) and then columns 1..n are from updatedRow[1...].
+                data[i][0] = updatedRow[0];
+                for (let j = 1; j < updatedRow.length; j++) {
+                  data[i][j] = updatedRow[j];
+                }
                 found = true;
                 break;
               }
