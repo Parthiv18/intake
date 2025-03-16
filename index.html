@@ -403,8 +403,8 @@
               if(data[i][0] && data[i][0].toString().trim() === intakeId){
                 // For each updated value, update the corresponding excel column.
                 for(let key in updatedValues) {
-                  let tableIdx = parseInt(key); // tableIdx from our rendered table (>=2)
-                  let excelIdx = tableIdx - 1; // shift because "Intake Name" was inserted at index 1 in the table
+                  let tableIdx = parseInt(key);
+                  let excelIdx = tableIdx - 1;
                   data[i][excelIdx] = updatedValues[key];
                 }
                 found = true;
@@ -576,11 +576,11 @@
               state.tableHeaders.push(hdr);
             }
           });
+          state.tableHeaders.splice(1, 0, "Intake Name");
           state.metricsRows = raw.slice(1).map(row =>
             incl.map(idx => row[idx] instanceof Date ? row[idx].toLocaleDateString("en-US") : row[idx] || "")
           );
           state.metricsIDs = new Set(state.metricsRows.map(r => normalizeID(r[0])));
-          state.tableHeaders.splice(1, 0, "Intake Name");
           state.metricsRows.forEach(row => {
             const id = normalizeID(row[0]);
             row.splice(1, 0, state.jrmNameMapping[id] || "");
@@ -643,7 +643,6 @@
               <button id="clearButton">Clear</button>
               <span id="counter">Intakes Count: 0</span>
             </div>
-            <!-- Updated horizontal add intake form -->
             <div id="addFormContainer" style="display:none;">
               <h3>Add New Intake</h3>
               <form id="addIntakeForm">
@@ -659,7 +658,6 @@
           let cards = { jrm: [], estimates: [], approved: [], ofs: [] };
           state.jrmRows.forEach((row, idx) => {
             let [id = "", name = "", comments = "", tags = "", rawStatus = "", attach = "", date] = row;
-            // Convert the date from Excel serial (if needed) to a proper Date object
             date = convertExcelDate(date);
             let status = String(rawStatus).toLowerCase(),
                 dispDate = date instanceof Date ? date.toLocaleDateString("en-US") : date,
@@ -725,7 +723,6 @@
               intakeTags: formData.get("intakeTags").trim(),
               intakeDate: formData.get("intakeDate")
             };
-            // Use normalizeID for duplicate check so ENT- prefix is ignored.
             let duplicate = state.jrmRows.some(row => {
               let existingId = normalizeID(row[0]);
               let newId = normalizeID(newIntake.intakeId);
@@ -828,21 +825,7 @@
           });
         }
         
-        function generateChart(id, labels, data, title, colors) {
-          Highcharts.chart(id, {
-            chart: { type: "column" },
-            title: { text: title },
-            xAxis: { categories: labels },
-            yAxis: { min: 0, title: { text: "Value" } },
-            plotOptions: { column: { stacking: "normal" } },
-            series: [{
-              name: title,
-              data: labels.map((_, i) => ({ y: parseFloat(data[i]) || 0, color: colors[i] }))
-            }]
-          });
-        }
-        
-        // UPDATED renderTable with Edit button and inline editing functionality
+        // UPDATED renderTable with inline editing and totals update
         function renderTable(container, fixed, indices, title, start, end) {
           const isET = title === "Metrics for ET";
           let totals = Array(indices.length).fill(0);
@@ -870,22 +853,36 @@
             tableHTML += rowHTML;
           });
           let totalRow = `<tr><td colspan="2"><strong>Total</strong></td>`;
-          indices.forEach((_, i) => {
-            const hdr = state.tableHeaders[indices[i]].toLowerCase().trim();
-            let fTot = totals[i].toLocaleString();
-            if (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs") || isET)
-              fTot = fmtCur(totals[i]);
-            else if ((hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %")) && !hdr.includes("total effort days"))
-              fTot = totals[i].toFixed(2) + "%";
-            totalRow += `<td><strong>${fTot}</strong></td>`;
-          });
-          totalRow += `<td></td>`;
+          // If we are in the default Estimates view, only show Grand Total = ET + Other Lines of Business
+          if(title === "Estimates Metrics") {
+            let etIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "et"),
+                otherIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "other lines of business"),
+                grandTotal = 0;
+            state.metricsRows.forEach(row => {
+              const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
+              if (!inRange(dt, start, end)) return;
+              grandTotal += parseCur(row[etIdx]) + parseCur(row[otherIdx]);
+            });
+            totalRow = `<tr><td colspan="2"><strong>Total</strong></td><td colspan="${indices.length}"><strong>Grand Total</strong>: ${fmtCur(grandTotal)}</td></tr>`;
+          } else {
+            indices.forEach((_, i) => {
+              const hdr = state.tableHeaders[indices[i]].toLowerCase().trim();
+              let fTot = totals[i].toLocaleString();
+              if (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs") || isET)
+                fTot = fmtCur(totals[i]);
+              else if ((hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %")) && !hdr.includes("total effort days"))
+                fTot = totals[i].toFixed(2) + "%";
+              totalRow += `<td><strong>${fTot}</strong></td>`;
+            });
+            totalRow += `<td></td>`;
+          }
           tableHTML += totalRow + "</tbody></table>";
           let trackerHTML = "";
-          if (isET) {
+          // For default Estimates view, the tracker table will simply show the Grand Total (ET + Other Lines of Business)
+          if(title === "Estimates Metrics") {
             let etIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "et"),
-              otherIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "other lines of business"),
-              grandTotal = 0;
+                otherIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "other lines of business"),
+                grandTotal = 0;
             state.metricsRows.forEach(row => {
               const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
               if (!inRange(dt, start, end)) return;
@@ -976,17 +973,22 @@
           const container = $("discipline-tables-container"),
                 start = $("startDateTotal").value,
                 end = $("endDateTotal").value;
+          // When no checkboxes are checked, show the default Estimates columns
           if (!OTHER.some(d => $(d + "Checkbox")?.checked)) {
-            const fixed = ["Intake ID", "Intake Name"],
-                  indices = [];
-            for (let i = 2; i < state.tableHeaders.length; i++) {
-              fixed.push(state.tableHeaders[i]);
-              indices.push(i);
-            }
+            const fixed = ["Intake ID", "Intake Name"];
+            const defaultMetrics = ["ET", "Other Lines of Business", "Total Ongoing Costs", "LOB Sub-Total", "Contingency and Action"];
+            const indices = [];
+            defaultMetrics.forEach(headerName => {
+              const idx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === headerName.trim().toLowerCase());
+              if (idx !== -1) {
+                fixed.push(state.tableHeaders[idx]);
+                indices.push(idx);
+              }
+            });
             if (!indices.length) {
               return container.innerHTML = "";
             }
-            renderTable(container, fixed, indices, "Metrics", start, end);
+            renderTable(container, fixed, indices, "Estimates Metrics", start, end);
             return;
           }
           const checked = OTHER.filter(d => $(d + "Checkbox")?.checked),
