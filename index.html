@@ -972,23 +972,36 @@
           });
         }
         
+        // UPDATED updateDisciplineTables function
         function updateDisciplineTables() {
           const container = $("discipline-tables-container"),
                 start = $("startDateTotal").value,
                 end = $("endDateTotal").value;
+          
+          // When no checkboxes are checked, use the specific list of columns:
           if (!OTHER.some(d => $(d + "Checkbox")?.checked)) {
-            const fixed = ["Intake ID", "Intake Name"],
-                  indices = [];
-            for (let i = 2; i < state.tableHeaders.length; i++) {
-              fixed.push(state.tableHeaders[i]);
-              indices.push(i);
-            }
+            const desiredColumns = [
+              "Intake ID",
+              "Intake Name",
+              "ET",
+              "Other Lines of Business",
+              "Total Ongoing Costs",
+              "LOB Sub-Total",
+              "Contingency and Action"
+            ];
+            const indices = desiredColumns
+              .map(col => state.tableHeaders.indexOf(col))
+              .filter(idx => idx !== -1);
+            
             if (!indices.length) {
-              return container.innerHTML = "";
+              container.innerHTML = "";
+              return;
             }
-            renderTable(container, fixed, indices, "Metrics", start, end);
+            renderTable(container, desiredColumns, indices, "Metrics", start, end);
             return;
           }
+          
+          // Existing code for when checkboxes are checked remains unchanged.
           const checked = OTHER.filter(d => $(d + "Checkbox")?.checked),
                 fixed = ["Intake ID", "Intake Name"],
                 indices = [];
@@ -1000,7 +1013,8 @@
             }
           }
           if (!indices.length) {
-            return container.innerHTML = "";
+            container.innerHTML = "";
+            return;
           }
           renderTable(container, fixed, indices, `Metrics for ${checked.map(d => d.toUpperCase()).join(", ")}`, start, end);
         }
