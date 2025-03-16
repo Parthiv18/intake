@@ -538,8 +538,11 @@
         
         function processMetrics(sheet) {
           const raw = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-          state.rawMetrics = raw;
-          if (!raw || raw.length < 2) return console.error("Metrics sheet has no data.");
+          // If no data is found in Metrics sheet, show a fallback message.
+          if (!raw || raw.length < 2) {
+            $("total-content").innerHTML = "<div class='container'><p>No Metrics data available.</p></div>";
+            return console.error("Metrics sheet has no data.");
+          }
           let incl = [];
           raw[0].forEach((hdr, col) => {
             if (hdr !== "Intake Name") {
@@ -737,7 +740,7 @@
           filterCards();
         }
         
-        // ---- NEW: Helper Functions for Total and Metrics Tables ----
+        // ---- Helper Functions for Total and Metrics Tables ----
         function generateMetricsTableHTML(fixed, indices, title, start, end) {
           let totals = Array(indices.length).fill(0);
           let tableHTML = `<h3>${title}</h3>
@@ -798,7 +801,6 @@
             <table class="modern-table">
               <thead>
                 <tr>`;
-          // For totals table, we omit the first two columns as they are not aggregated.
           tableHTML += fixed.slice(2).map(h => `<th>${h}</th>`).join("");
           tableHTML += `</tr></thead><tbody>`;
           let totalRow = `<tr>`;
