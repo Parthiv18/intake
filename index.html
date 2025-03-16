@@ -791,12 +791,26 @@
           });
         }
         
-        // UPDATED renderTable with separate Metrics and Total tables side by side
+        function generateChart(id, labels, data, title, colors) {
+          Highcharts.chart(id, {
+            chart: { type: "column" },
+            title: { text: title },
+            xAxis: { categories: labels },
+            yAxis: { min: 0, title: { text: "Value" } },
+            plotOptions: { column: { stacking: "normal" } },
+            series: [{
+              name: title,
+              data: labels.map((_, i) => ({ y: parseFloat(data[i]) || 0, color: colors[i] }))
+            }]
+          });
+        }
+        
+        // UPDATED renderTable with Edit button and inline editing functionality
         function renderTable(container, fixed, indices, title, start, end) {
           const isET = title === "Metrics for ET";
           let totals = Array(indices.length).fill(0);
-          let metricsTableHTML = `<h3>${title}</h3>
-            <table class="modern-table" id="metricsTable">
+          let tableHTML = `<h3>${title}</h3>
+            <table class="modern-table">
               <thead><tr>${fixed.map(h => `<th>${h}</th>`).join("")}<th>Actions</th></tr></thead>
               <tbody>`;
           state.metricsRows.forEach(row => {
@@ -816,34 +830,25 @@
             });
             rowHTML += `<td><button class="editBtn" data-intake-id="${row[0]}">Edit</button></td>`;
             rowHTML += "</tr>";
-            metricsTableHTML += rowHTML;
+            tableHTML += rowHTML;
           });
-          metricsTableHTML += "</tbody></table>";
-          
-          let totalTableHTML = `<h3>Total</h3>
-            <table class="modern-table" id="totalTable">
-              <thead><tr>${fixed.map(h => `<th>${h}</th>`).join("")}</tr></thead>
-              <tbody>
-                <tr>
-                  <td colspan="2"><strong>Total</strong></td>`;
+          let totalRow = `<tr><td colspan="2"><strong>Total</strong></td>`;
           indices.forEach((_, i) => {
             const hdr = state.tableHeaders[indices[i]].toLowerCase().trim();
-            let fTot = totals[i];
+            let fTot = totals[i].toLocaleString();
             if (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs") || isET)
               fTot = fmtCur(totals[i]);
             else if ((hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %")) && !hdr.includes("total effort days"))
               fTot = totals[i].toFixed(2) + "%";
-            else
-              fTot = totals[i].toLocaleString();
-            totalTableHTML += `<td><strong>${fTot}</strong></td>`;
+            totalRow += `<td><strong>${fTot}</strong></td>`;
           });
-          totalTableHTML += `</tr></tbody></table>`;
-          
+          totalRow += `<td></td>`;
+          tableHTML += totalRow + "</tbody></table>";
+          let trackerHTML = "";
           container.innerHTML = `<div style="display:flex;gap:20px;">
-            <div style="flex:3;max-height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:10px;">${metricsTableHTML}</div>
-            <div style="flex:1;max-height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:10px;">${totalTableHTML}</div>
+            <div style="flex:3;max-height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:10px;">${tableHTML}</div>
+            <div style="flex:1;max-height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:10px;">${trackerHTML}</div>
           </div>`;
-          
           container.querySelectorAll(".editBtn").forEach(btn => {
             btn.addEventListener("click", handleEditClick);
           });
@@ -897,7 +902,6 @@
           });
         }
         
-        // UPDATED updateDisciplineTables: removed early returns so that renderTable is always called
         function updateDisciplineTables() {
           const container = $("discipline-tables-container"),
                 start = $("startDateTotal").value,
@@ -908,6 +912,9 @@
             for (let i = 2; i < state.tableHeaders.length; i++) {
               fixed.push(state.tableHeaders[i]);
               indices.push(i);
+            }
+            if (!indices.length) {
+              return container.innerHTML = "";
             }
             renderTable(container, fixed, indices, "Metrics", start, end);
             return;
@@ -921,6 +928,9 @@
               fixed.push(state.tableHeaders[i]);
               indices.push(i);
             }
+          }
+          if (!indices.length) {
+            return container.innerHTML = "";
           }
           renderTable(container, fixed, indices, `Metrics for ${checked.map(d => d.toUpperCase()).join(", ")}`, start, end);
         }
