@@ -401,9 +401,10 @@
             let found = false;
             for(let i = 1; i < data.length; i++){
               if(data[i][0] && data[i][0].toString().trim() === intakeId){
+                // For each updated value, update the corresponding excel column.
                 for(let key in updatedValues) {
-                  let tableIdx = parseInt(key);
-                  let excelIdx = tableIdx - 1;
+                  let tableIdx = parseInt(key); // tableIdx from our rendered table (>=2)
+                  let excelIdx = tableIdx - 1; // shift because "Intake Name" was inserted at index 1 in the table
                   data[i][excelIdx] = updatedValues[key];
                 }
                 found = true;
@@ -642,6 +643,7 @@
               <button id="clearButton">Clear</button>
               <span id="counter">Intakes Count: 0</span>
             </div>
+            <!-- Updated horizontal add intake form -->
             <div id="addFormContainer" style="display:none;">
               <h3>Add New Intake</h3>
               <form id="addIntakeForm">
@@ -657,6 +659,7 @@
           let cards = { jrm: [], estimates: [], approved: [], ofs: [] };
           state.jrmRows.forEach((row, idx) => {
             let [id = "", name = "", comments = "", tags = "", rawStatus = "", attach = "", date] = row;
+            // Convert the date from Excel serial (if needed) to a proper Date object
             date = convertExcelDate(date);
             let status = String(rawStatus).toLowerCase(),
                 dispDate = date instanceof Date ? date.toLocaleDateString("en-US") : date,
@@ -722,6 +725,7 @@
               intakeTags: formData.get("intakeTags").trim(),
               intakeDate: formData.get("intakeDate")
             };
+            // Use normalizeID for duplicate check so ENT- prefix is ignored.
             let duplicate = state.jrmRows.some(row => {
               let existingId = normalizeID(row[0]);
               let newId = normalizeID(newIntake.intakeId);
@@ -770,61 +774,118 @@
           filterCards();
         }
         
-        // UPDATED renderTable Function
-        // This version uses the passed-in fixed headers and corresponding indices.
-        // If using a custom set (like our desiredColumns), it loops over every header.
+        function generateIntakeCards(data) {
+          $("intake-charts").innerHTML = data.slice(1).reduce((html, row) => {
+            const id = normalizeID(row[0]);
+            return html + `
+              <div id="data-${id}" class="data" style="display:none;border:1px solid #ddd;margin-bottom:20px;padding:10px;">
+                <div style="border:1px solid #ddd;margin:10px;padding:10px;">
+                  <h3>ET One Time Estimates Breakdown</h3>
+                  <div class="charts-row">
+                    ${[1,2,3,4].map(i => `<div id="chart${i}-${id}" class="chart-container"></div>`).join("")}
+                  </div>
+                </div>
+                <div style="border:1px solid #ddd;margin:10px;padding:10px;">
+                  <h3>LOB Sub-Total & Contingency and ET & Other Lines of Business</h3>
+                  <div class="charts-row">
+                    ${[5,6].map(i => `<div id="chart${i}-${id}" class="chart-container"></div>`).join("")}
+                  </div>
+                </div>
+              </div>`;
+          }, "");
+        }
+        
+        function initCharts(data) {
+          const header = data[0], last = header.length,
+                contIdx = header.findIndex(h => h.trim().toLowerCase() === "contingency"),
+                startIdx = contIdx + 1;
+          data.slice(1).forEach(row => {
+            const id = normalizeID(row[0]),
+                  etLabels = [], etTFD = [], etTC = [], etEff = [], etCost = [];
+            for (let col = startIdx; col < last; col += 4) {
+              etLabels.push((header[col] || "").replace(" Total Effort Days", ""));
+              etTFD.push(row[col] || 0);
+              etTC.push(row[col + 1] || 0);
+              etEff.push(row[col + 2] || 0);
+              etCost.push(row[col + 3] || 0);
+            }
+            const color = i => ["#4a90e2", "#a0c4ff", "#90b0d8", "#7a9cc6", "#6588b4"][(i - 1) % 5];
+            generateChart(`chart1-${id}`, etLabels, etTFD, "Total Effort Days", etLabels.map((_,i) => color(i+1)));
+            generateChart(`chart2-${id}`, etLabels, etTC, "Total Costs", etLabels.map((_,i) => color(i+1)));
+            generateChart(`chart3-${id}`, etLabels, etEff, "Effort %", etLabels.map((_,i) => color(i+1)));
+            generateChart(`chart4-${id}`, etLabels, etCost, "Cost %", etLabels.map((_,i) => color(i+1)));
+  
+            const lob = Number(row[header.findIndex(h => h.trim().toLowerCase() === "lob sub-total")] || 0),
+                  cont = Number(row[contIdx] || 0),
+                  data5 = [lob, cont, lob + cont],
+                  labels5 = ["LOB Sub-Total", "Contingency", "Total"],
+                  etVal = Number(row[header.findIndex(h => h.trim().toLowerCase() === "et")] || 0),
+                  other = Number(row[header.findIndex(h => h.trim().toLowerCase() === "other lines of business")] || 0),
+                  data6 = [etVal, other, etVal + other],
+                  labels6 = ["ET", "Other Lines", "Total"];
+            generateChart(`chart5-${id}`, labels5, data5, "LOB Sub-Total & Contingency", ["#4a90e2", "#a0c4ff", "#7a9cc6"]);
+            generateChart(`chart6-${id}`, labels6, data6, "ET & Other Lines", ["#4a90e2", "#a0c4ff", "#7a9cc6"]);
+          });
+        }
+        
+        function generateChart(id, labels, data, title, colors) {
+          Highcharts.chart(id, {
+            chart: { type: "column" },
+            title: { text: title },
+            xAxis: { categories: labels },
+            yAxis: { min: 0, title: { text: "Value" } },
+            plotOptions: { column: { stacking: "normal" } },
+            series: [{
+              name: title,
+              data: labels.map((_, i) => ({ y: parseFloat(data[i]) || 0, color: colors[i] }))
+            }]
+          });
+        }
+        
+        // UPDATED renderTable with Edit button and inline editing functionality
         function renderTable(container, fixed, indices, title, start, end) {
           const isET = title === "Metrics for ET";
-          // For totals, we assume that the first two columns (Intake ID and Intake Name) are non-numeric.
-          let totals = Array(indices.length - 2).fill(0);
+          let totals = Array(indices.length).fill(0);
           let tableHTML = `<h3>${title}</h3>
             <table class="modern-table">
-              <thead><tr>`;
-          fixed.forEach(h => { tableHTML += `<th>${h}</th>`; });
-          tableHTML += `<th>Actions</th></tr></thead><tbody>`;
-          
+              <thead><tr>${fixed.map(h => `<th>${h}</th>`).join("")}<th>Actions</th></tr></thead>
+              <tbody>`;
           state.metricsRows.forEach(row => {
             const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
             if (!inRange(dt, start, end)) return;
-            let rowHTML = `<tr>`;
-            fixed.forEach((h, i) => {
-              const colIndex = indices[i];
-              const cell = row[colIndex], hdr = state.tableHeaders[colIndex].toLowerCase().trim();
-              // Sum numeric columns (skip first two)
-              if (i >= 2) {
-                totals[i - 2] += parseCur(cell);
-              }
+            let rowHTML = `<tr>
+              <td>${row[0]}</td>
+              <td>${row[1]}</td>`;
+            indices.forEach((idx, i) => {
+              const cell = row[idx], hdr = state.tableHeaders[idx].toLowerCase().trim();
+              totals[i] += parseCur(cell);
               let formatted = (cell === "" || cell === null || isNaN(parseFloat(cell))) ? "-" :
                 hdr.includes("total effort days") ? cell :
-                (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs") || isET) ? "$" + cell :
+                (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs") || hdr.includes("et") || hdr.includes("other lines of business") || hdr.includes("lob sub-total") || hdr.includes("contingency")) ? "$" + parseFloat(cell).toLocaleString() :
                 (hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %")) ? parseFloat(cell).toFixed(2) + "%" : cell;
-              rowHTML += `<td data-col="${colIndex}" data-intake-id="${row[0]}">${formatted}</td>`;
+              rowHTML += `<td data-col="${idx}" data-intake-id="${row[0]}">${formatted}</td>`;
             });
             rowHTML += `<td><button class="editBtn" data-intake-id="${row[0]}">Edit</button></td>`;
             rowHTML += "</tr>";
             tableHTML += rowHTML;
           });
-          
-          // Totals row: first two columns get a colspan, then one cell per numeric column.
           let totalRow = `<tr><td colspan="2"><strong>Total</strong></td>`;
-          for (let i = 2; i < fixed.length; i++) {
-            const colIndex = indices[i];
-            const hdr = state.tableHeaders[colIndex].toLowerCase().trim();
-            let fTot = totals[i - 2].toLocaleString();
+          indices.forEach((_, i) => {
+            const hdr = state.tableHeaders[indices[i]].toLowerCase().trim();
+            let fTot = totals[i].toLocaleString();
             if (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs") || isET)
-              fTot = fmtCur(totals[i - 2]);
+              fTot = fmtCur(totals[i]);
             else if ((hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %")) && !hdr.includes("total effort days"))
-              fTot = totals[i - 2].toFixed(2) + "%";
+              fTot = totals[i].toFixed(2) + "%";
             totalRow += `<td><strong>${fTot}</strong></td>`;
-          }
+          });
           totalRow += `<td></td>`;
           tableHTML += totalRow + "</tbody></table>";
-          
           let trackerHTML = "";
           if (isET) {
             let etIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "et"),
-                otherIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "other lines of business"),
-                grandTotal = 0;
+              otherIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "other lines of business"),
+              grandTotal = 0;
             state.metricsRows.forEach(row => {
               const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
               if (!inRange(dt, start, end)) return;
@@ -837,20 +898,13 @@
               </table>`;
           } else {
             const totObj = { totalEffortDays: 0, tc: 0, ePerc: 0, cPerc: 0 };
-            indices.forEach((colIndex, i) => {
-              const hdr = state.tableHeaders[colIndex].toLowerCase().trim();
-              let val = 0;
-              state.metricsRows.forEach(row => {
-                const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
-                if (!inRange(dt, start, end)) return;
-                if (row[colIndex] !== "" && !isNaN(parseCur(row[colIndex]))) {
-                  val += parseCur(row[colIndex]);
-                }
-              });
-              if (hdr.includes("total effort days")) totObj.totalEffortDays = val;
-              else if (hdr.includes("tc") || hdr.includes("total costs")) totObj.tc = val;
-              if (hdr.endsWith("e%")) totObj.ePerc = val < 1 ? val * 100 : val;
-              else if (hdr.endsWith("c%")) totObj.cPerc = val < 1 ? val * 100 : val;
+            indices.forEach((idx, i) => {
+              const hdr = state.tableHeaders[idx].toLowerCase().trim();
+              let val = totals[i];
+              if (hdr.includes("total effort days")) totObj.totalEffortDays += val;
+              else if (hdr.includes("tc") || hdr.includes("total costs") || isET) totObj.tc += val;
+              if (hdr.endsWith("e%")) totObj.ePerc += val < 1 ? val * 100 : val;
+              else if (hdr.endsWith("c%")) totObj.cPerc += val < 1 ? val * 100 : val;
             });
             trackerHTML = `<h3>Total</h3>
               <table class="modern-table">
@@ -861,12 +915,10 @@
                 <tr><td>Cost %</td><td>${totObj.cPerc.toFixed(2)}%</td></tr>
               </table>`;
           }
-          
           container.innerHTML = `<div style="display:flex;gap:20px;">
             <div style="flex:3;max-height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:10px;">${tableHTML}</div>
             <div style="flex:1;max-height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:10px;">${trackerHTML}</div>
           </div>`;
-          
           container.querySelectorAll(".editBtn").forEach(btn => {
             btn.addEventListener("click", handleEditClick);
           });
@@ -920,36 +972,23 @@
           });
         }
         
-        // UPDATED updateDisciplineTables function
-        // When no checkboxes are checked, we use our desired columns.
         function updateDisciplineTables() {
           const container = $("discipline-tables-container"),
                 start = $("startDateTotal").value,
                 end = $("endDateTotal").value;
-          
           if (!OTHER.some(d => $(d + "Checkbox")?.checked)) {
-            const desiredColumns = [
-              "Intake ID",
-              "Intake Name",
-              "ET",
-              "Other Lines of Business",
-              "Total Ongoing Costs",
-              "LOB Sub-Total",
-              "Contingency and Action"
-            ];
-            const indices = desiredColumns
-              .map(col => state.tableHeaders.indexOf(col))
-              .filter(idx => idx !== -1);
-            
-            if (!indices.length) {
-              container.innerHTML = "";
-              return;
+            const fixed = ["Intake ID", "Intake Name"],
+                  indices = [];
+            for (let i = 2; i < state.tableHeaders.length; i++) {
+              fixed.push(state.tableHeaders[i]);
+              indices.push(i);
             }
-            // Call renderTable using the entire fixed array (all desired columns)
-            renderTable(container, desiredColumns, indices, "Metrics", start, end);
+            if (!indices.length) {
+              return container.innerHTML = "";
+            }
+            renderTable(container, fixed, indices, "Metrics", start, end);
             return;
           }
-          
           const checked = OTHER.filter(d => $(d + "Checkbox")?.checked),
                 fixed = ["Intake ID", "Intake Name"],
                 indices = [];
@@ -961,8 +1000,7 @@
             }
           }
           if (!indices.length) {
-            container.innerHTML = "";
-            return;
+            return container.innerHTML = "";
           }
           renderTable(container, fixed, indices, `Metrics for ${checked.map(d => d.toUpperCase()).join(", ")}`, start, end);
         }
