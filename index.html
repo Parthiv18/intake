@@ -86,7 +86,7 @@
       table.modern-table tr:nth-child(even) { background: #f3f3f3; }
       table.modern-table tr:hover { background: #f1f1f1; }
       
-      /* Custom Context Menu Styles */
+      /* Custom Context Menu Styles for cards */
       #contextMenu {
         position: absolute;
         background: #fff;
@@ -107,6 +107,29 @@
       #contextMenu li:hover {
         background: #eee;
       }
+      
+      /* Custom Context Menu Styles for Metrics Table Rows */
+      #metricsContextMenu {
+        position: absolute;
+        background: #fff;
+        border: 1px solid #ccc;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        z-index: 3000;
+        display: none;
+      }
+      #metricsContextMenu ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      #metricsContextMenu li {
+        padding: 8px 12px;
+        cursor: pointer;
+      }
+      #metricsContextMenu li:hover {
+        background: #eee;
+      }
+      
       /* Add Form Styles */
       #addFormContainer {
         background: #eef; 
@@ -116,6 +139,9 @@
       }
       #addFormContainer label { display: block; margin: 5px 0; }
       #addFormContainer input { margin-left: 10px; }
+      
+      /* Editable metrics row highlight */
+      tr.metrics-row.editable:hover { background: #fff8e1; cursor: pointer; }
     </style>
   </head>
   <body>
@@ -131,8 +157,10 @@
       <div id="intake-charts" class="hidden"></div>
     </div>
     
-    <!-- Custom Context Menu Element -->
+    <!-- Custom Context Menu for Cards -->
     <div id="contextMenu"><ul></ul></div>
+    <!-- Custom Context Menu for Metrics Table Rows -->
+    <div id="metricsContextMenu"><ul><li id="editMetricsOption">Edit</li></ul></div>
     
     <!-- GitHub configuration -->
     <script>
@@ -355,7 +383,65 @@
           }
         }
         
-        // ----- Custom Context Menu Functionality -----
+        // ----- New: Update Metrics Row Function -----
+        async function updateMetricsRowInExcel(rowIndex, newRowData, retries = 3) {
+          try {
+            const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
+            const getResponse = await fetch(getUrl, {
+              headers: {
+                Authorization: `token ${CONFIG.token}`,
+                Accept: "application/vnd.github+json"
+              }
+            });
+            const getData = await getResponse.json();
+            if(getResponse.status !== 200){
+              throw new Error("Error fetching file: " + getData.message);
+            }
+            const sha = getData.sha;
+            const base64Content = getData.content.replace(/\n/g, "");
+            let workbook = XLSX.read(base64Content, { type: "base64" });
+            const sheetName = "Metrics";
+            let sheet = workbook.Sheets[sheetName];
+            let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+            if(rowIndex < 1 || rowIndex >= data.length) {
+              throw new Error("Row index out of range.");
+            }
+            data[rowIndex] = newRowData;  // replace the entire row
+            const newSheet = XLSX.utils.aoa_to_sheet(data);
+            workbook.Sheets[sheetName] = newSheet;
+            const newBase64Content = XLSX.write(workbook, { bookType: "xlsx", type: "base64" });
+            const updateUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`;
+            const updateResponse = await fetch(updateUrl, {
+              method: "PUT",
+              headers: {
+                Authorization: `token ${CONFIG.token}`,
+                Accept: "application/vnd.github+json",
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                message: `Update Metrics row at index ${rowIndex}`,
+                content: newBase64Content,
+                sha: sha,
+                branch: CONFIG.branch
+              })
+            });
+            const updateData = await updateResponse.json();
+            if(updateResponse.status === 200 || updateResponse.status === 201){
+              console.log("Metrics row updated successfully.");
+            } else {
+              if(retries > 0 && updateData.message && updateData.message.includes("does not match")){
+                console.warn("SHA mismatch, retrying...");
+                return updateMetricsRowInExcel(rowIndex, newRowData, retries - 1);
+              } else {
+                throw new Error("Error updating file: " + updateData.message);
+              }
+            }
+          } catch (error) {
+            console.error("Failed to update Metrics row:", error);
+          }
+        }
+        
+        // ----- Custom Context Menu for Cards (existing) -----
         function hideContextMenu() {
           document.getElementById('contextMenu').style.display = 'none';
         }
@@ -416,6 +502,81 @@
           }
         });
         
+        // ----- Custom Context Menu for Metrics Table Rows -----
+        const metricsContextMenu = document.getElementById('metricsContextMenu');
+        metricsContextMenu.addEventListener('click', function(e) {
+          if (e.target.id === 'editMetricsOption' && metricsContextMenu.targetRow) {
+            enableRowEditing(metricsContextMenu.targetRow);
+          }
+          metricsContextMenu.style.display = 'none';
+        });
+        
+        // Delegate right-click on editable metrics rows inside the discipline-tables-container
+        document.getElementById("discipline-tables-container").addEventListener('contextmenu', function(e) {
+          const row = e.target.closest('tr.metrics-row.editable');
+          if (row) {
+            e.preventDefault();
+            metricsContextMenu.targetRow = row;
+            metricsContextMenu.style.top = e.pageY + "px";
+            metricsContextMenu.style.left = e.pageX + "px";
+            metricsContextMenu.style.display = "block";
+          }
+        });
+        
+        // ----- Functions to Enable Editing on a Metrics Row -----
+        function enableRowEditing(row) {
+          if (row.getAttribute('data-editing') === "true") return;
+          row.setAttribute('data-editing', "true");
+          const cells = row.querySelectorAll('td');
+          // Assume first two cells (Intake ID and Intake Name) are not editable
+          for (let i = 2; i < cells.length; i++) {
+            // Remove any formatting (like currency symbols) and create a number input
+            const currentVal = cells[i].innerText.replace(/[^0-9.\-]/g, "");
+            cells[i].innerHTML = `<input type="number" value="${currentVal}" style="width:100%;"/>`;
+          }
+          // Append a new cell with a Save button
+          const saveCell = document.createElement('td');
+          const saveBtn = document.createElement('button');
+          saveBtn.textContent = "Save";
+          saveBtn.addEventListener('click', function() {
+            saveEditedRow(row);
+          });
+          saveCell.appendChild(saveBtn);
+          row.appendChild(saveCell);
+        }
+        
+        function saveEditedRow(row) {
+          const inputs = row.querySelectorAll('input[type="number"]');
+          const newValues = [];
+          for (let input of inputs) {
+            const value = parseFloat(input.value);
+            if (isNaN(value)) {
+              alert("Please enter valid numbers.");
+              return;
+            }
+            newValues.push(value);
+          }
+          // Update each cell (starting from cell index 2) with the new value
+          let cellIndex = 2;
+          inputs.forEach(input => {
+            const cell = row.cells[cellIndex];
+            cell.innerText = input.value;
+            cellIndex++;
+          });
+          // Remove the Save button cell (last cell)
+          row.deleteCell(row.cells.length - 1);
+          row.removeAttribute('data-editing');
+          
+          // Get the row index stored in a data attribute; note: data-row-index was set during rendering.
+          const rowIndex = parseInt(row.getAttribute('data-row-index'), 10);
+          // Reconstruct the full row data (all cells except the Save button)
+          const cellsArray = Array.from(row.cells);
+          const newRowData = cellsArray.slice(0, cellsArray.length).map(cell => cell.innerText);
+          // Update local state (if you maintain one) and then update the Excel Metrics sheet.
+          state.metricsRows[rowIndex - 1] = newRowData;
+          updateMetricsRowInExcel(rowIndex, newRowData);
+        }
+        
         // ----- Existing Data Fetching & Processing Code -----
         const OTHER = ["ba", "qa", "aoto", "pmo", "dev"],
           dp = { et: "et", ba: "et-ba", qa: "et-qa", aoto: "ao/to", pmo: "pmo", dev: "et-dev" },
@@ -447,7 +608,6 @@
 
         async function fetchData() {
           try {
-            // Fetch the Excel file from GitHub to always get the latest version
             const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
             const response = await fetch(getUrl, {
               headers: {
@@ -457,7 +617,6 @@
             });
             const fileData = await response.json();
             const base64Content = fileData.content.replace(/\n/g, "");
-            // Convert Base64 to ArrayBuffer
             const binaryString = atob(base64Content);
             const len = binaryString.length;
             const bytes = new Uint8Array(len);
@@ -536,7 +695,6 @@
           if (!raw || raw.length < 2) return console.error("JRM sheet has no data.");
           state.jrmHeader = raw[0];
           state.jrmRows = raw.slice(1);
-          // Build the top filter and add form HTML for the JRM section
           let html = `<div class="container">
             <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
               <input type="text" id="searchInput" placeholder="Search by Intake ID, Name or Tags">
@@ -551,7 +709,6 @@
               <button id="clearButton">Clear</button>
               <span id="counter">Intakes Count: 0</span>
             </div>
-            <!-- Add New Intake Form (hidden by default) -->
             <div id="addFormContainer" style="display:none;">
               <h3>Add New Intake</h3>
               <form id="addIntakeForm">
@@ -564,7 +721,6 @@
                 <button type="button" id="cancelAdd">Cancel</button>
               </form>
             </div>`;
-          // Process each row to create JRM cards
           let cards = { jrm: [], estimates: [], approved: [], ofs: [] };
           state.jrmRows.forEach((row, idx) => {
             let [id = "", name = "", comments = "", tags = "", rawStatus = "", attach = "", date] = row,
@@ -575,8 +731,7 @@
               normId = normalizeID(id);
             state.jrmNameMapping[normId] = name;
             state.jrmDateMapping[normId] = isoDate;
-            const viewLink = status === "approved" ?
-              `<div style="position:absolute;bottom:10px;right:10px;"><a href="javascript:void(0)" data-intake-id="${normId}" class="view-link">View</a></div>` : "";
+            const viewLink = status === "approved" ? `<div style="position:absolute;bottom:10px;right:10px;"><a href="javascript:void(0)" data-intake-id="${normId}" class="view-link">View</a></div>` : "";
             const card = `<div id="card-ENT-${normId}" class="jrm-card" data-intake-id="${id}" data-intake-name="${name}" data-intake-tags="${tags}" data-intake-date="${isoDate}" data-status="${status}" data-closed="${closed}">
                 <h3><a href="https://jira.cibcatl.com/browse/ENT-${normId}" target="_blank">ENT-${normId} - ${name}</a></h3>
                 <p><strong>Date:</strong> ${dispDate}</p>
@@ -603,8 +758,6 @@
             </div>
           </div>`;
           $("jrm-content").innerHTML = html;
-          
-          // Add event listeners for filtering
           on("#searchInput, #startDate, #endDate, #statusDropdown", "input", filterCards);
           $("clearButton").addEventListener("click", () => {
             $("searchInput").value = "";
@@ -617,17 +770,13 @@
             if (e.target.classList.contains("view-link"))
               showData(e.target.getAttribute("data-intake-id"));
           });
-          
-          // Add button to toggle the add form
           $("addButton").addEventListener("click", () => {
             const formContainer = $("addFormContainer");
             formContainer.style.display = formContainer.style.display === "none" ? "block" : "none";
           });
-          // Cancel button to hide add form
           $("cancelAdd").addEventListener("click", () => {
             $("addFormContainer").style.display = "none";
           });
-          // Handle add intake form submission
           $("addIntakeForm").addEventListener("submit", async function(e) {
             e.preventDefault();
             const formData = new FormData(this);
@@ -638,7 +787,6 @@
               intakeTags: formData.get("intakeTags").trim(),
               intakeDate: formData.get("intakeDate")
             };
-            // Check if the intake ID already exists in the current state
             let duplicate = state.jrmRows.some(row => row[0] && row[0].toString().trim() === newIntake.intakeId);
             if (duplicate) {
               alert("Intake ID already exists. Please use a unique Intake ID.");
@@ -646,7 +794,6 @@
             }
             try {
               await addNewIntakeToExcel(newIntake);
-              // Update local state: add the new row at the top
               const newRow = [
                 newIntake.intakeId,
                 newIntake.intakeName,
@@ -657,11 +804,9 @@
                 newIntake.intakeDate
               ];
               state.jrmRows.unshift(newRow);
-              // Update mappings for the new intake
               const normId = normalizeID(newIntake.intakeId);
               state.jrmNameMapping[normId] = newIntake.intakeName;
               state.jrmDateMapping[normId] = newIntake.intakeDate;
-              // Create new card HTML and prepend it to the JRM column (after header)
               const dispDate = new Date(newIntake.intakeDate).toLocaleDateString("en-US");
               const newCardHtml = `<div id="card-ENT-${normId}" class="jrm-card" data-intake-id="${newIntake.intakeId}" data-intake-name="${newIntake.intakeName}" data-intake-tags="${newIntake.intakeTags}" data-intake-date="${newIntake.intakeDate}" data-status="jrm" data-closed="false">
                 <h3><a href="https://jira.cibcatl.com/browse/ENT-${normId}" target="_blank">ENT-${normId} - ${newIntake.intakeName}</a></h3>
@@ -676,10 +821,9 @@
               } else {
                 jrmCol.insertAdjacentHTML("afterbegin", newCardHtml);
               }
-              // Hide the form and reset it
               $("addFormContainer").style.display = "none";
               this.reset();
-              filterCards(); // update the counter
+              filterCards();
             } catch (err) {
               alert("Failed to add new intake: " + err.message);
             }
@@ -755,6 +899,7 @@
           });
         }
 
+        // Updated renderTable to include data-row-index and mark "expt total" rows as editable.
         function renderTable(container, fixed, indices, title, start, end) {
           const isET = title === "Metrics for ET";
           let totals = Array(indices.length).fill(0);
@@ -762,21 +907,32 @@
             <table class="modern-table">
               <thead><tr>${fixed.map(h => `<th>${h}</th>`).join("")}</tr></thead>
               <tbody>`;
-          state.metricsRows.forEach(row => {
-            const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
+          state.metricsRows.forEach((row, idx) => {
+            const id = normalizeID(row[0]),
+              dt = state.jrmDateMapping[id];
             if (!inRange(dt, start, end)) return;
-            let rowHTML = `<tr><td>${row[0]}</td><td>${row[1]}</td>`;
-            indices.forEach((idx, i) => {
-              const cell = row[idx], hdr = state.tableHeaders[idx].toLowerCase().trim();
-              totals[i] += parseCur(cell);
+            // Check if the row is the estimate row you want editable.
+            // Here we check if the first cell text (Intake ID) includes "expt total" (case-insensitive).
+            const isEditable = row[0].toString().toLowerCase().includes("expt total");
+            let rowClass = "metrics-row" + (isEditable ? " editable" : "");
+            // Note: we add a data attribute for row index (Excel row index is idx+1 since header is row 0).
+            let rowHTML = `<tr class="${rowClass}" data-row-index="${idx + 1}">` +
+                          `<td>${row[0]}</td><td>${row[1]}</td>`;
+            indices.forEach(idx2 => {
+              const cell = row[idx2],
+                    hdr = state.tableHeaders[idx2].toLowerCase().trim();
+              totals.push(0);
+              totals[idx2 - 2] += parseCur(cell);
               let formatted = (cell === "" || cell === null || isNaN(parseFloat(cell))) ? "-" :
                 hdr.includes("total effort days") ? cell :
                 (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs") || isET) ? "$" + cell :
                 (hdr.endsWith("%") || hdr.includes("effort") || hdr.includes("cost %")) ? parseFloat(cell).toFixed(2) + "%" : cell;
               rowHTML += `<td>${formatted}</td>`;
             });
-            tableHTML += rowHTML + "</tr>";
+            rowHTML += "</tr>";
+            tableHTML += rowHTML;
           });
+          // Total row
           let totalRow = `<tr><td colspan="2"><strong>Total</strong></td>`;
           indices.forEach((_, i) => {
             const hdr = state.tableHeaders[indices[i]].toLowerCase().trim();
@@ -795,7 +951,8 @@
               otherIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "other lines of business"),
               grandTotal = 0;
             state.metricsRows.forEach(row => {
-              const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
+              const id = normalizeID(row[0]),
+                    dt = state.jrmDateMapping[id];
               if (!inRange(dt, start, end)) return;
               grandTotal += parseCur(row[etIdx]) + parseCur(row[otherIdx]);
             });
@@ -900,7 +1057,8 @@
             start = $("startDateTotal").value,
             end = $("endDateTotal").value,
             filtered = state.metricsRows.filter(row => {
-              const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
+              const id = normalizeID(row[0]),
+                    dt = state.jrmDateMapping[id];
               return (!start && !end) || (dt && inRange(dt, start, end));
             });
           if (!filtered.length) {
