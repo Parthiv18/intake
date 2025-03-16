@@ -849,6 +849,82 @@
           });
         }
         
+        // Inline editing event handlers
+        function handleEditClick(event) {
+          const btn = event.target;
+          const tr = btn.closest("tr");
+          const intakeId = btn.getAttribute("data-intake-id");
+          const editableCells = tr.querySelectorAll("td[data-col]");
+          editableCells.forEach(cell => {
+            let currentText = cell.textContent;
+            let rawValue = currentText.replace(/[\$, %]/g, "").trim();
+            cell.innerHTML = `<input type="text" value="${rawValue}" style="width:100%;">`;
+          });
+          const actionCell = tr.querySelector("td:last-child");
+          actionCell.innerHTML = `<button class="saveBtn" data-intake-id="${intakeId}">Save</button>
+                                  <button class="cancelBtn" data-intake-id="${intakeId}">Cancel</button>`;
+          actionCell.querySelector(".saveBtn").addEventListener("click", handleSaveClick);
+          actionCell.querySelector(".cancelBtn").addEventListener("click", () => {
+            updateDisciplineTables();
+          });
+        }
+        
+        function handleSaveClick(event) {
+          const btn = event.target;
+          const tr = btn.closest("tr");
+          const intakeId = btn.getAttribute("data-intake-id");
+          let updatedValues = {};
+          tr.querySelectorAll("td[data-col]").forEach(cell => {
+            const colIdx = cell.getAttribute("data-col");
+            const input = cell.querySelector("input");
+            if(input) {
+              updatedValues[colIdx] = input.value;
+            }
+          });
+          updateMetricsRowInExcel(intakeId, updatedValues).then(() => {
+            for(let i=0; i<state.metricsRows.length; i++){
+              if(state.metricsRows[i][0].toString().trim() === intakeId){
+                for(let key in updatedValues) {
+                  state.metricsRows[i][parseInt(key)] = updatedValues[key];
+                }
+                break;
+              }
+            }
+            updateDisciplineTables();
+          }).catch(err => {
+            alert("Failed to update Metrics row: " + err.message);
+            updateDisciplineTables();
+          });
+        }
+        
+        // UPDATED updateDisciplineTables: removed early returns so that renderTable is always called
+        function updateDisciplineTables() {
+          const container = $("discipline-tables-container"),
+                start = $("startDateTotal").value,
+                end = $("endDateTotal").value;
+          if (!OTHER.some(d => $(d + "Checkbox")?.checked)) {
+            const fixed = ["Intake ID", "Intake Name"],
+                  indices = [];
+            for (let i = 2; i < state.tableHeaders.length; i++) {
+              fixed.push(state.tableHeaders[i]);
+              indices.push(i);
+            }
+            renderTable(container, fixed, indices, "Metrics", start, end);
+            return;
+          }
+          const checked = OTHER.filter(d => $(d + "Checkbox")?.checked),
+                fixed = ["Intake ID", "Intake Name"],
+                indices = [];
+          for (let i = 2; i < state.tableHeaders.length; i++) {
+            const hdr = state.tableHeaders[i].toLowerCase().trim();
+            if (checked.map(d => dp[d]).some(p => hdr.includes(p))) {
+              fixed.push(state.tableHeaders[i]);
+              indices.push(i);
+            }
+          }
+          renderTable(container, fixed, indices, `Metrics for ${checked.map(d => d.toUpperCase()).join(", ")}`, start, end);
+        }
+        
         function updateMetricSelect() {
           const sel = $("metric");
           sel.innerHTML = "";
