@@ -8,9 +8,13 @@
       rel="icon"
       href="https://cdn.brandfetch.io/idQbNDKa7o/theme/dark/symbol.svg?c=1bx1742335544623id64Mup7acmj3isyyG&t=1683555048490"
     />
+    <!-- Include the XLSX and Highcharts libraries as before -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://code.highcharts.com/highcharts.js"></script>
+    <!-- Include the Socket.IO client library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
     <style>
+      /* (Your existing CSS remains unchanged) */
       *, *::before, *::after { box-sizing: border-box; }
       body {
         margin: 0;
@@ -162,36 +166,87 @@
     
     <script>
       (function() {
-        // ----------------- Cooldown Logic with Auto Refresh -----------------
+        // ----------------- Socket.IO Setup & Global Cooldown Logic -----------------
+        // Establish a connection to your Socket.IO server
+        var socket = io(); 
+
         let cooldownActive = false;
+        let countdownTimer;
         function startCooldown() {
           cooldownActive = true;
           let countdown = 60;
-          const countdownDiv = document.createElement("div");
-          countdownDiv.id = "cooldownTimer";
-          countdownDiv.style.position = "fixed";
-          countdownDiv.style.bottom = "10px";
-          countdownDiv.style.left = "10px";
-          countdownDiv.style.backgroundColor = "rgba(0, 0, 0, 0.7)";
-          countdownDiv.style.color = "#fff";
-          countdownDiv.style.padding = "10px";
-          countdownDiv.style.borderRadius = "4px";
-          countdownDiv.style.zIndex = "10000";
+          // Broadcast to other connected clients that a cooldown has started.
+          socket.emit("startCooldown", { duration: 20, startTime: Date.now() });
+          
+          let countdownDiv = document.getElementById("cooldownTimer");
+          if (!countdownDiv) {
+            countdownDiv = document.createElement("div");
+            countdownDiv.id = "cooldownTimer";
+            countdownDiv.style.position = "fixed";
+            countdownDiv.style.bottom = "10px";
+            countdownDiv.style.left = "10px";
+            countdownDiv.style.backgroundColor = "rgba(0, 0, 0, 0.7)";
+            countdownDiv.style.color = "#fff";
+            countdownDiv.style.padding = "10px";
+            countdownDiv.style.borderRadius = "4px";
+            countdownDiv.style.zIndex = "10000";
+            document.body.appendChild(countdownDiv);
+          }
           countdownDiv.textContent = `Please wait: ${countdown} seconds`;
-          document.body.appendChild(countdownDiv);
-          const interval = setInterval(() => {
+          countdownTimer = setInterval(() => {
             countdown--;
             if (countdown <= 0) {
-              clearInterval(interval);
-              document.body.removeChild(countdownDiv);
+              clearInterval(countdownTimer);
+              countdownTimer = null;
+              if (countdownDiv.parentNode) countdownDiv.parentNode.removeChild(countdownDiv);
               cooldownActive = false;
-              // Auto refresh the content after the cooldown expires
+              // Auto-refresh content when cooldown expires.
               fetchData();
             } else {
               countdownDiv.textContent = `Please wait: ${countdown} seconds`;
             }
           }, 1000);
         }
+        // Listen for cooldown events from the server so that all clients show the same countdown.
+        socket.on("startCooldown", function(data) {
+          let now = Date.now();
+          let elapsed = Math.floor((now - data.startTime) / 1000);
+          let remaining = data.duration - elapsed;
+          if (remaining > 0) {
+            cooldownActive = true;
+            let countdownDiv = document.getElementById("cooldownTimer");
+            if (!countdownDiv) {
+              countdownDiv = document.createElement("div");
+              countdownDiv.id = "cooldownTimer";
+              countdownDiv.style.position = "fixed";
+              countdownDiv.style.bottom = "10px";
+              countdownDiv.style.left = "10px";
+              countdownDiv.style.backgroundColor = "rgba(0, 0, 0, 0.7)";
+              countdownDiv.style.color = "#fff";
+              countdownDiv.style.padding = "10px";
+              countdownDiv.style.borderRadius = "4px";
+              countdownDiv.style.zIndex = "10000";
+              document.body.appendChild(countdownDiv);
+            }
+            countdownDiv.textContent = `Please wait: ${remaining} seconds`;
+            // If no timer is running, start one to update the countdown display.
+            if (!countdownTimer) {
+              countdownTimer = setInterval(() => {
+                let now = Date.now();
+                let elapsed = Math.floor((now - data.startTime) / 1000);
+                let remaining = data.duration - elapsed;
+                if (remaining <= 0) {
+                  clearInterval(countdownTimer);
+                  countdownTimer = null;
+                  if (countdownDiv.parentNode) countdownDiv.parentNode.removeChild(countdownDiv);
+                  cooldownActive = false;
+                } else {
+                  countdownDiv.textContent = `Please wait: ${remaining} seconds`;
+                }
+              }, 1000);
+            }
+          }
+        });
         function checkCooldown() {
           if (cooldownActive) {
             alert("Please wait");
@@ -209,7 +264,7 @@
           return excelDate;
         }
         
-        // ----- GitHub Excel Update Functions -----
+        // ----- GitHub Excel Update Functions (move, add, delete, edit) -----
         async function updateCardStatusInExcel(intakeId, newStatus, retries = 3) {
           if (checkCooldown()) return;
           console.log(`Updating card ${intakeId} to status ${newStatus}...`);
@@ -298,7 +353,6 @@
             const sheetName = "JRM";
             let sheet = workbook.Sheets[sheetName];
             let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-            
             const newRow = [
               newIntake.intakeId,
               newIntake.intakeName,
