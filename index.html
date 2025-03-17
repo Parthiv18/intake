@@ -130,19 +130,6 @@
       #addIntakeForm input {
         padding: 4px;
       }
-      /* Timer display in bottom right */
-      #processTimer {
-        position: fixed;
-        bottom: 10px;
-        right: 10px;
-        background: rgba(0,0,0,0.7);
-        color: #fff;
-        padding: 5px 10px;
-        border-radius: 4px;
-        font-size: 14px;
-        z-index: 3000;
-        display: none;
-      }
     </style>
   </head>
   <body>
@@ -160,8 +147,6 @@
     
     <!-- Custom Context Menu Element -->
     <div id="contextMenu"><ul></ul></div>
-    <!-- Process Timer Display -->
-    <div id="processTimer">20</div>
     
     <!-- GitHub configuration -->
     <script>
@@ -177,27 +162,43 @@
     
     <script>
       (function() {
-        // Global flag to block new processes during the countdown period.
-        let processActive = false;
-        
-        // ----- Function: Start 20-second Countdown Timer (Non-blocking) -----
-        function startProcessCountdown() {
-          processActive = true;
+        // ----------------- Cooldown Logic -----------------
+        let cooldownActive = false;
+        function startCooldown() {
+          cooldownActive = true;
           let countdown = 20;
-          const timerEl = document.getElementById("processTimer");
-          timerEl.textContent = countdown;
-          timerEl.style.display = "block";
+          const countdownDiv = document.createElement("div");
+          countdownDiv.id = "cooldownTimer";
+          countdownDiv.style.position = "fixed";
+          countdownDiv.style.bottom = "10px";
+          countdownDiv.style.left = "10px";
+          countdownDiv.style.backgroundColor = "rgba(0, 0, 0, 0.7)";
+          countdownDiv.style.color = "#fff";
+          countdownDiv.style.padding = "10px";
+          countdownDiv.style.borderRadius = "4px";
+          countdownDiv.style.zIndex = "10000";
+          countdownDiv.textContent = `Please wait: ${countdown} seconds`;
+          document.body.appendChild(countdownDiv);
           const interval = setInterval(() => {
             countdown--;
-            timerEl.textContent = countdown;
             if (countdown <= 0) {
               clearInterval(interval);
-              processActive = false;
-              timerEl.style.display = "none";
+              document.body.removeChild(countdownDiv);
+              cooldownActive = false;
+            } else {
+              countdownDiv.textContent = `Please wait: ${countdown} seconds`;
             }
           }, 1000);
         }
-        
+        function checkCooldown() {
+          if (cooldownActive) {
+            alert("Please wait");
+            return true;
+          }
+          return false;
+        }
+        // --------------------------------------------------
+
         // ----- Helper: Convert Excel Serial Date to JavaScript Date -----
         function convertExcelDate(excelDate) {
           if (typeof excelDate === "number") {
@@ -208,6 +209,7 @@
         
         // ----- GitHub Excel Update Functions -----
         async function updateCardStatusInExcel(intakeId, newStatus, retries = 3) {
+          if (checkCooldown()) return;
           console.log(`Updating card ${intakeId} to status ${newStatus}...`);
           try {
             const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
@@ -271,9 +273,11 @@
             console.error("Update failed:", error);
             alert("Failed to update card status: " + error.message);
           }
+          startCooldown();
         }
         
         async function addNewIntakeToExcel(newIntake, retries = 3) {
+          if (checkCooldown()) return;
           try {
             const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
             const getResponse = await fetch(getUrl, {
@@ -293,7 +297,6 @@
             let sheet = workbook.Sheets[sheetName];
             let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
             
-            // Removed duplicate check here to avoid false positives
             const newRow = [
               newIntake.intakeId,
               newIntake.intakeName,
@@ -337,9 +340,11 @@
             console.error("Failed to add new intake:", error);
             throw error;
           }
+          startCooldown();
         }
         
         async function deleteCardFromExcel(intakeId, retries = 3) {
+          if (checkCooldown()) return;
           console.log(`Deleting card ${intakeId}...`);
           try {
             const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
@@ -402,9 +407,11 @@
           } catch (error) {
             console.error("Delete failed:", error);
           }
+          startCooldown();
         }
         
         async function updateMetricsRowInExcel(intakeId, updatedValues, retries = 3) {
+          if (checkCooldown()) return;
           console.log(`Updating Metrics row for ${intakeId}...`);
           try {
             const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
@@ -472,6 +479,7 @@
             console.error("Metrics update failed:", error);
             throw error;
           }
+          startCooldown();
         }
         
         // ----- Custom Context Menu Functionality -----
@@ -481,10 +489,7 @@
         document.addEventListener('click', hideContextMenu);
         
         function moveCard(card, newStatus) {
-          if (processActive) {
-            alert("Please wait, process is in progress.");
-            return;
-          }
+          if (checkCooldown()) return;
           let container;
           if (newStatus === 'jrm') container = document.getElementById('jrm-col');
           else if (newStatus === 'estimates') container = document.getElementById('estimates-col');
@@ -500,8 +505,8 @@
             card.setAttribute('data-status', newStatus);
             const intakeId = card.getAttribute('data-intake-id');
             updateCardStatusInExcel(intakeId, newStatus);
-            startProcessCountdown();
           }
+          startCooldown();
         }
         
         document.addEventListener('contextmenu', function(e) {
@@ -526,15 +531,11 @@
             const deleteOption = document.createElement('li');
             deleteOption.textContent = 'Delete';
             deleteOption.addEventListener("click", function() {
-              if (processActive) {
-                alert("Please wait, process is in progress.");
-                return;
-              }
+              if (checkCooldown()) return;
               const intakeId = card.getAttribute('data-intake-id');
               deleteCardFromExcel(intakeId);
               card.remove();
               hideContextMenu();
-              startProcessCountdown();
             });
             ul.appendChild(deleteOption);
             
@@ -692,10 +693,7 @@
         
         // Inline editing event handlers
         function handleEditClick(event) {
-          if (processActive) {
-            alert("Please wait, process is in progress.");
-            return;
-          }
+          if (checkCooldown()) return;
           const btn = event.target;
           const tr = btn.closest("tr");
           const intakeId = btn.getAttribute("data-intake-id");
@@ -715,10 +713,7 @@
         }
         
         function handleSaveClick(event) {
-          if (processActive) {
-            alert("Please wait, process is in progress.");
-            return;
-          }
+          if (checkCooldown()) return;
           const btn = event.target;
           const tr = btn.closest("tr");
           const intakeId = btn.getAttribute("data-intake-id");
@@ -740,11 +735,11 @@
               }
             }
             updateDisciplineTables();
+            startCooldown();
           }).catch(err => {
             alert("Failed to update Metrics row: " + err.message);
             updateDisciplineTables();
           });
-          startProcessCountdown();
         }
         
         function updateDisciplineTables() {
@@ -1111,13 +1106,9 @@
           $("cancelAdd").addEventListener("click", () => {
             $("addFormContainer").style.display = "none";
           });
-          // Updated Add New Intake: Update UI immediately before processing the GitHub update.
           $("addIntakeForm").addEventListener("submit", function(e) {
             e.preventDefault();
-            if (processActive) {
-              alert("Please wait, process is in progress.");
-              return;
-            }
+            if (checkCooldown()) return;
             const formData = new FormData(this);
             const newIntake = {
               intakeId: formData.get("intakeId").trim(),
@@ -1126,7 +1117,6 @@
               intakeTags: formData.get("intakeTags").trim(),
               intakeDate: formData.get("intakeDate")
             };
-            // Duplicate check is done here.
             let duplicate = state.jrmRows.some(row => {
               let existingId = normalizeID(row[0]);
               let newId = normalizeID(newIntake.intakeId);
@@ -1136,7 +1126,6 @@
               alert("Intake ID already exists. Please use a unique Intake ID.");
               return;
             }
-            // Immediately update local state and UI:
             const newRow = [
               newIntake.intakeId,
               newIntake.intakeName,
@@ -1167,11 +1156,10 @@
             filterCards();
             this.reset();
             $("addFormContainer").style.display = "none";
-            // Process the GitHub update in the background.
             addNewIntakeToExcel(newIntake).catch(err => {
               alert("Failed to add new intake to Excel: " + err.message);
             });
-            startProcessCountdown();
+            startCooldown();
           });
           filterCards();
         }
