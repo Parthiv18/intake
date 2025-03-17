@@ -162,7 +162,7 @@
     
     <script>
       (function() {
-        // ----------------- Cooldown Logic -----------------
+        // ----------------- Cooldown Logic with Auto Refresh -----------------
         let cooldownActive = false;
         function startCooldown() {
           cooldownActive = true;
@@ -185,6 +185,8 @@
               clearInterval(interval);
               document.body.removeChild(countdownDiv);
               cooldownActive = false;
+              // Auto refresh the content after the cooldown expires
+              fetchData();
             } else {
               countdownDiv.textContent = `Please wait: ${countdown} seconds`;
             }
@@ -197,7 +199,7 @@
           }
           return false;
         }
-        // --------------------------------------------------
+        // ---------------------------------------------------------------------
 
         // ----- Helper: Convert Excel Serial Date to JavaScript Date -----
         function convertExcelDate(excelDate) {
