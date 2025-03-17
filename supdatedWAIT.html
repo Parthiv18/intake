@@ -1,0 +1,1355 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>Intake Pipeline</title>
+    <link
+      rel="icon"
+      href="https://cdn.brandfetch.io/idQbNDKa7o/theme/dark/symbol.svg?c=1bx1742335544623id64Mup7acmj3isyyG&t=1683555048490"
+    />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://code.highcharts.com/highcharts.js"></script>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: #f7f7f7;
+        color: #333;
+        line-height: 1.6;
+      }
+      #sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        background: #333;
+        width: 180px;
+        height: 100%;
+        padding: 20px;
+        overflow-y: auto;
+        z-index: 1000;
+      }
+      #sidebar button {
+        display: block;
+        width: 100%;
+        padding: 12px;
+        margin-bottom: 10px;
+        background: #444;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        font-size: 16px;
+        cursor: pointer;
+        transition: background 0.3s;
+      }
+      #sidebar button:hover { background: #555; }
+      #main { margin-left: 200px; padding: 20px; }
+      @media screen and (max-width: 768px) {
+        #sidebar { position: relative; width: 100%; height: auto; }
+        #main { margin-left: 0; }
+      }
+      .hidden { display: none; }
+      .container { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 20px; }
+      .summary { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; }
+      .summary > div {
+        flex: 1;
+        min-width: 150px;
+        padding: 10px;
+        background: #f0f0f0;
+        border-radius: 4px;
+        text-align: center;
+        font-weight: bold;
+      }
+      .filters-container { margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #ddd; }
+      .filter-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+      #checkboxes label { margin-right: 15px; font-weight: normal; }
+      #chart-container { max-width: 600px; height: 400px; margin: 20px 0; }
+      .table-wrapper { overflow-x: auto; }
+      .jrm-card {
+        background: #f7f7f7;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        padding: 20px;
+        margin-bottom: 20px;
+        position: relative;
+        transition: transform 0.3s, box-shadow 0.3s;
+      }
+      .jrm-card:hover { transform: translateY(-3px); box-shadow: 0 4px 8px rgba(0,0,0,0.12); }
+      .jrm-card h3 { margin: 0 0 10px; font-size: 1.4em; color: #333; }
+      .jrm-card h3 a { color: #333; text-decoration: none; word-wrap: break-word; }
+      .jrm-card h3 a:hover { text-decoration: underline; }
+      .jrm-card p { font-size: 1em; color: #555; margin: 8px 0; }
+      .jrm-card .attachment {
+        position: absolute;
+        bottom: 10px;
+        left: 10px;
+      }
+      .jrm-card .attachment a {
+        font-size: 0.9em;
+        color: #4a90e2;
+        text-decoration: none;
+        font-weight: bold;
+      }
+      .jrm-card .attachment a:hover { text-decoration: underline; }
+      .row { display: flex; gap: 20px; margin: 20px 0; }
+      .col { flex: 1; position: relative; }
+      .col h2 {
+        position: sticky;
+        top: 0;
+        background: #fff;
+        padding: 10px;
+        margin: 0;
+        border-bottom: 2px solid #ccc;
+        z-index: 2;
+      }
+      .cards-container { max-height: 85vh; overflow-y: auto; padding-right: 10px; }
+      #intake-charts { margin-top: 20px; }
+      .charts-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin: 20px 0; }
+      .chart-container {
+        height: 250px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background: #fff;
+        padding: 10px;
+      }
+      table.modern-table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: auto;
+      }
+      table.modern-table th {
+        background: #009879;
+        color: #fff;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      table.modern-table th, table.modern-table td {
+        padding: 8px 10px;
+        font-size: 0.9em;
+        border: 1px solid #ddd;
+        white-space: nowrap;
+        vertical-align: middle;
+      }
+      table.modern-table tr:nth-child(even) { background: #f3f3f3; }
+      table.modern-table tr:hover { background: #f1f1f1; }
+      
+      /* Custom Context Menu Styles */
+      #contextMenu {
+        position: absolute;
+        background: #fff;
+        border: 1px solid #ccc;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        z-index: 2000;
+        display: none;
+      }
+      #contextMenu ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      #contextMenu li {
+        padding: 8px 12px;
+        cursor: pointer;
+      }
+      #contextMenu li:hover { background: #eee; }
+      
+      /* Add Form Styles */
+      #addFormContainer {
+        background: #eef;
+        padding: 15px;
+        border-radius: 4px;
+        margin-bottom: 15px;
+      }
+      /* Updated form styling for horizontal layout */
+      #addIntakeForm {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      #addIntakeForm label {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        margin: 0;
+      }
+      #addIntakeForm input { padding: 4px; }
+      
+      /* Smaller Admin Login Box to fit within sidebar */
+      #adminLogin {
+        position: fixed;
+        bottom: 10px;
+        left: 10px;
+        width: 140px;
+        font-size: 0.9em;
+        background: #fff;
+        border: 1px solid #ccc;
+        padding: 8px;
+        border-radius: 4px;
+        z-index: 3000;
+      }
+      #adminLogin input { padding: 4px; width: 100%; font-size: 0.9em; }
+      #adminLogin button { font-size: 0.9em; margin-top: 5px; width: 100%; }
+      #adminUser { margin-top: 5px; text-align: center; font-weight: bold; }
+    </style>
+  </head>
+  <body>
+    <div id="sidebar">
+      <button id="jrmBtn">JRM</button>
+      <button id="totalBtn">ESTIMATES</button>
+      <button id="definitionBtn">DEFINITIONS</button>
+      <button id="exportAllBtn">Export</button>
+    </div>
+    <div id="main">
+      <div id="total-content" class="hidden"></div>
+      <div id="jrm-content" class="hidden"></div>
+      <div id="intake-charts" class="hidden"></div>
+    </div>
+    
+    <!-- Custom Context Menu Element -->
+    <div id="contextMenu"><ul></ul></div>
+    
+    <!-- Admin Login Box (smaller and positioned at bottom left) -->
+    <div id="adminLogin">
+      <input type="password" id="adminPassword" placeholder="Password">
+      <button id="adminGo">Go</button>
+      <div id="adminUser"></div>
+    </div>
+    
+    <!-- GitHub configuration -->
+    <script>
+      // Replace these placeholder values with your actual configuration.
+      const CONFIG = {
+        owner: "Parthiv18",
+        repo: "intake",       // Replace with your repository name
+        branch: "main",
+        token: "%%MY_GITHUB_TOKEN%%",     // Replace with your GitHub token
+        path: "Intake_Database.xlsx"
+      };
+    </script>
+    
+    <script>
+      (function() {
+        // Global admin flag
+        let isAdmin = false;
+        // Helper function to check for admin access
+        function requireAdmin() {
+          if (!isAdmin) {
+            alert("No access");
+            return false;
+          }
+          return true;
+        }
+        
+        // ----------------- Cooldown Logic with Auto Refresh -----------------
+        let cooldownActive = false;
+        function startCooldown() {
+          cooldownActive = true;
+          let countdown = 60;
+          const countdownDiv = document.createElement("div");
+          countdownDiv.id = "cooldownTimer";
+          countdownDiv.style.position = "fixed";
+          countdownDiv.style.bottom = "10px";
+          countdownDiv.style.left = "10px";
+          countdownDiv.style.backgroundColor = "rgba(0, 0, 0, 0.7)";
+          countdownDiv.style.color = "#fff";
+          countdownDiv.style.padding = "10px";
+          countdownDiv.style.borderRadius = "4px";
+          countdownDiv.style.zIndex = "10000";
+          countdownDiv.textContent = `Please wait: ${countdown} seconds`;
+          document.body.appendChild(countdownDiv);
+          const interval = setInterval(() => {
+            countdown--;
+            if (countdown <= 0) {
+              clearInterval(interval);
+              document.body.removeChild(countdownDiv);
+              cooldownActive = false;
+              // Auto refresh the content after the cooldown expires
+              fetchData();
+            } else {
+              countdownDiv.textContent = `Please wait: ${countdown} seconds`;
+            }
+          }, 1000);
+        }
+        function checkCooldown() {
+          if (cooldownActive) {
+            alert("Please wait");
+            return true;
+          }
+          return false;
+        }
+        // ---------------------------------------------------------------------
+
+        // ----- Helper: Convert Excel Serial Date to JavaScript Date -----
+        function convertExcelDate(excelDate) {
+          if (typeof excelDate === "number") {
+            return new Date((excelDate - 25569) * 86400 * 1000);
+          }
+          return excelDate;
+        }
+        
+        // ----- GitHub Excel Update Functions -----
+        async function updateCardStatusInExcel(intakeId, newStatus, retries = 3) {
+          if (checkCooldown()) return;
+          console.log(`Updating card ${intakeId} to status ${newStatus}...`);
+          try {
+            const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
+            const getResponse = await fetch(getUrl, {
+              headers: {
+                Authorization: `token ${CONFIG.token}`,
+                Accept: "application/vnd.github+json"
+              }
+            });
+            const getData = await getResponse.json();
+            if (getResponse.status !== 200) {
+              throw new Error("Error fetching file: " + getData.message);
+            }
+            const sha = getData.sha;
+            const base64Content = getData.content.replace(/\n/g, "");
+            let workbook = XLSX.read(base64Content, { type: "base64" });
+            const sheetName = "JRM";
+            let sheet = workbook.Sheets[sheetName];
+            let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+            let found = false;
+            for (let i = 1; i < data.length; i++) {
+              if (data[i][0] && data[i][0].toString().trim() === intakeId.toString().trim()) {
+                data[i][4] = newStatus;
+                found = true;
+                break;
+              }
+            }
+            if (!found) {
+              throw new Error("Intake ID not found in the Excel file.");
+            }
+            const newSheet = XLSX.utils.aoa_to_sheet(data);
+            workbook.Sheets[sheetName] = newSheet;
+            const newBase64Content = XLSX.write(workbook, { bookType: "xlsx", type: "base64" });
+            const updateUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`;
+            const updateResponse = await fetch(updateUrl, {
+              method: "PUT",
+              headers: {
+                Authorization: `token ${CONFIG.token}`,
+                Accept: "application/vnd.github+json",
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                message: `Update card ${intakeId} status to ${newStatus}`,
+                content: newBase64Content,
+                sha: sha,
+                branch: CONFIG.branch
+              })
+            });
+            const updateData = await updateResponse.json();
+            if (updateResponse.status === 200 || updateResponse.status === 201) {
+              console.log(`Card ${intakeId} updated successfully in the Excel file.`);
+            } else {
+              if (retries > 0 && updateData.message && updateData.message.includes("does not match")) {
+                console.warn("SHA mismatch detected, retrying update...");
+                return updateCardStatusInExcel(intakeId, newStatus, retries - 1);
+              } else {
+                throw new Error("Error updating file: " + updateData.message);
+              }
+            }
+          } catch (error) {
+            console.error("Update failed:", error);
+            alert("Failed to update card status: " + error.message);
+          }
+          startCooldown();
+        }
+        
+        async function addNewIntakeToExcel(newIntake, retries = 3) {
+          if (checkCooldown()) return;
+          try {
+            const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
+            const getResponse = await fetch(getUrl, {
+              headers: {
+                Authorization: `token ${CONFIG.token}`,
+                Accept: "application/vnd.github+json"
+              }
+            });
+            const getData = await getResponse.json();
+            if(getResponse.status !== 200){
+              throw new Error("Error fetching file: " + getData.message);
+            }
+            const sha = getData.sha;
+            const base64Content = getData.content.replace(/\n/g, "");
+            let workbook = XLSX.read(base64Content, { type: "base64" });
+            const sheetName = "JRM";
+            let sheet = workbook.Sheets[sheetName];
+            let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+            
+            const newRow = [
+              newIntake.intakeId,
+              newIntake.intakeName,
+              newIntake.intakeComments,
+              newIntake.intakeTags,
+              "jrm",
+              "",
+              newIntake.intakeDate
+            ];
+            data.splice(1, 0, newRow);
+            const newSheet = XLSX.utils.aoa_to_sheet(data);
+            workbook.Sheets[sheetName] = newSheet;
+            const newBase64Content = XLSX.write(workbook, { bookType: "xlsx", type: "base64" });
+            const updateUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`;
+            const updateResponse = await fetch(updateUrl, {
+              method: "PUT",
+              headers: {
+                Authorization: `token ${CONFIG.token}`,
+                Accept: "application/vnd.github+json",
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                message: `Add new intake ${newIntake.intakeId}`,
+                content: newBase64Content,
+                sha: sha,
+                branch: CONFIG.branch
+              })
+            });
+            const updateData = await updateResponse.json();
+            if(updateResponse.status === 200 || updateResponse.status === 201){
+              console.log(`New intake ${newIntake.intakeId} added successfully in the Excel file.`);
+            } else {
+              if(retries > 0 && updateData.message && updateData.message.includes("does not match")){
+                console.warn("SHA mismatch, retrying...");
+                return addNewIntakeToExcel(newIntake, retries-1);
+              } else {
+                throw new Error("Error updating file: " + updateData.message);
+              }
+            }
+          } catch (error) {
+            console.error("Failed to add new intake:", error);
+            throw error;
+          }
+          startCooldown();
+        }
+        
+        async function deleteCardFromExcel(intakeId, retries = 3) {
+          if (checkCooldown()) return;
+          console.log(`Deleting card ${intakeId}...`);
+          try {
+            const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
+            const getResponse = await fetch(getUrl, {
+              headers: {
+                Authorization: `token ${CONFIG.token}`,
+                Accept: "application/vnd.github+json"
+              }
+            });
+            const getData = await getResponse.json();
+            if (getResponse.status !== 200) {
+              throw new Error("Error fetching file: " + getData.message);
+            }
+            const sha = getData.sha;
+            const base64Content = getData.content.replace(/\n/g, "");
+            let workbook = XLSX.read(base64Content, { type: "base64" });
+            const sheetName = "JRM";
+            let sheet = workbook.Sheets[sheetName];
+            let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+            let found = false;
+            for (let i = 1; i < data.length; i++) {
+              if (data[i][0] && data[i][0].toString().trim() === intakeId.toString().trim()) {
+                data.splice(i, 1);
+                found = true;
+                break;
+              }
+            }
+            if (!found) {
+              throw new Error("Intake ID not found in the Excel file.");
+            }
+            const newSheet = XLSX.utils.aoa_to_sheet(data);
+            workbook.Sheets[sheetName] = newSheet;
+            const newBase64Content = XLSX.write(workbook, { bookType: "xlsx", type: "base64" });
+            const updateUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`;
+            const updateResponse = await fetch(updateUrl, {
+              method: "PUT",
+              headers: {
+                Authorization: `token ${CONFIG.token}`,
+                Accept: "application/vnd.github+json",
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                message: `Delete card ${intakeId}`,
+                content: newBase64Content,
+                sha: sha,
+                branch: CONFIG.branch
+              })
+            });
+            const updateData = await updateResponse.json();
+            if (updateResponse.status === 200 || updateResponse.status === 201) {
+              console.log(`Card ${intakeId} deleted successfully in the Excel file.`);
+            } else {
+              if (retries > 0 && updateData.message && updateData.message.includes("does not match")) {
+                console.warn("SHA mismatch detected, retrying deletion...");
+                return deleteCardFromExcel(intakeId, retries - 1);
+              } else {
+                throw new Error("Error updating file: " + updateData.message);
+              }
+            }
+          } catch (error) {
+            console.error("Delete failed:", error);
+          }
+          startCooldown();
+        }
+        
+        async function updateMetricsRowInExcel(intakeId, updatedValues, retries = 3) {
+          if (checkCooldown()) return;
+          console.log(`Updating Metrics row for ${intakeId}...`);
+          try {
+            const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
+            const getResponse = await fetch(getUrl, {
+              headers: {
+                Authorization: `token ${CONFIG.token}`,
+                Accept: "application/vnd.github+json"
+              }
+            });
+            const getData = await getResponse.json();
+            if(getResponse.status !== 200) {
+              throw new Error("Error fetching file: " + getData.message);
+            }
+            const sha = getData.sha;
+            const base64Content = getData.content.replace(/\n/g, "");
+            let workbook = XLSX.read(base64Content, { type: "base64" });
+            const sheetName = "Metrics";
+            let sheet = workbook.Sheets[sheetName];
+            let data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+            let found = false;
+            for(let i = 1; i < data.length; i++){
+              if(data[i][0] && data[i][0].toString().trim() === intakeId.toString().trim()){
+                for(let key in updatedValues) {
+                  let tableIdx = parseInt(key);
+                  let excelIdx = tableIdx - 1;
+                  data[i][excelIdx] = updatedValues[key];
+                }
+                found = true;
+                break;
+              }
+            }
+            if(!found){
+              throw new Error("Intake ID not found in the Metrics sheet.");
+            }
+            const newSheet = XLSX.utils.aoa_to_sheet(data);
+            workbook.Sheets[sheetName] = newSheet;
+            const newBase64Content = XLSX.write(workbook, { bookType: "xlsx", type: "base64" });
+            const updateUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}`;
+            const updateResponse = await fetch(updateUrl, {
+              method: "PUT",
+              headers: {
+                Authorization: `token ${CONFIG.token}`,
+                Accept: "application/vnd.github+json",
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                message: `Update Metrics row for ${intakeId}`,
+                content: newBase64Content,
+                sha: sha,
+                branch: CONFIG.branch
+              })
+            });
+            const updateData = await updateResponse.json();
+            if(updateResponse.status === 200 || updateResponse.status === 201){
+              console.log(`Metrics row for ${intakeId} updated successfully in the Excel file.`);
+            } else {
+              if(retries > 0 && updateData.message && updateData.message.includes("does not match")){
+                console.warn("SHA mismatch detected, retrying update...");
+                return updateMetricsRowInExcel(intakeId, updatedValues, retries-1);
+              } else {
+                throw new Error("Error updating file: " + updateData.message);
+              }
+            }
+          } catch (error) {
+            console.error("Metrics update failed:", error);
+            throw error;
+          }
+          startCooldown();
+        }
+        
+        // ----- Custom Context Menu Functionality -----
+        function hideContextMenu() {
+          document.getElementById('contextMenu').style.display = 'none';
+        }
+        document.addEventListener('click', hideContextMenu);
+        
+        function moveCard(card, newStatus) {
+          if (!requireAdmin()) return;
+          if (checkCooldown()) return;
+          let container;
+          if (newStatus === 'jrm') container = document.getElementById('jrm-col');
+          else if (newStatus === 'estimates') container = document.getElementById('estimates-col');
+          else if (newStatus === 'approved') container = document.getElementById('approved-col');
+          else if (newStatus === 'ofs') container = document.getElementById('ofs-container');
+          if (container) {
+            const header = container.querySelector('h2');
+            if (header) {
+              container.insertBefore(card, header.nextSibling);
+            } else {
+              container.appendChild(card);
+            }
+            card.setAttribute('data-status', newStatus);
+            const intakeId = card.getAttribute('data-intake-id');
+            updateCardStatusInExcel(intakeId, newStatus);
+          }
+          startCooldown();
+        }
+        
+        document.addEventListener('contextmenu', function(e) {
+          const card = e.target.closest('.jrm-card');
+          if (card) {
+            e.preventDefault();
+            const currentStatus = card.getAttribute('data-status');
+            const statuses = ['jrm', 'estimates', 'approved', 'ofs'];
+            const options = statuses.filter(status => status !== currentStatus);
+            const contextMenu = document.getElementById('contextMenu');
+            const ul = contextMenu.querySelector('ul');
+            ul.innerHTML = "";
+            options.forEach(option => {
+              const li = document.createElement('li');
+              li.textContent = 'Move to ' + option;
+              li.addEventListener("click", function() {
+                moveCard(card, option);
+                hideContextMenu();
+              });
+              ul.appendChild(li);
+            });
+            const deleteOption = document.createElement('li');
+            deleteOption.textContent = 'Delete';
+            deleteOption.addEventListener("click", function() {
+              if (!requireAdmin()) return;
+              if (checkCooldown()) return;
+              const intakeId = card.getAttribute('data-intake-id');
+              deleteCardFromExcel(intakeId);
+              card.remove();
+              hideContextMenu();
+            });
+            ul.appendChild(deleteOption);
+            
+            contextMenu.style.top = e.pageY + "px";
+            contextMenu.style.left = e.pageX + "px";
+            contextMenu.style.display = "block";
+          }
+        });
+        
+        // ----- Existing Data Fetching & Processing Code -----
+        const OTHER = ["ba", "qa", "aoto", "pmo", "dev"],
+              dp = { et: "et", ba: "et-ba", qa: "et-qa", aoto: "ao/to", pmo: "pmo", dev: "et-dev" },
+              state = {
+                jrmHeader: null,
+                jrmDateMapping: {},
+                jrmNameMapping: {},
+                jrmRows: [],
+                metricsRows: [],
+                tableHeaders: [],
+                metricOptions: [],
+                metricMapping: {},
+                metricsIDs: new Set(),
+                rawMetrics: []
+              };
+        
+        const $ = id => document.getElementById(id),
+              on = (sel, evt, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(evt, fn)),
+              fmtCur = num => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(num),
+              parseCur = val => typeof val === "string" ? parseFloat(val.replace(/[^0-9.-]+/g, "")) || 0 : Number(val) || 0,
+              normalizeID = id => {
+                id = String(id || "").trim();
+                return id.toUpperCase().startsWith("ENT-") ? id.slice(4) : id;
+              },
+              inRange = (dt, s, e) => (!s || dt >= s) && (!e || dt <= e),
+              createOption = (val, text) => { 
+                const o = document.createElement("option"); 
+                o.value = val; o.textContent = text; 
+                return o; 
+              };
+        
+        function renderTable(container, fixed, indices, title, start, end) {
+          const isET = title === "Metrics for ET";
+          const currencyColumns = ["et", "other lines of business", "total ongoing costs", "lob sub-total", "contingency"];
+          let totals = Array(indices.length).fill(0);
+          let tableHTML = `<h3>${title}</h3>
+            <table class="modern-table">
+              <thead><tr>${fixed.map(h => `<th>${h}</th>`).join("")}<th>Actions</th></tr></thead>
+              <tbody>`;
+          state.metricsRows.forEach(row => {
+            const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
+            if (!inRange(dt, start, end)) return;
+            let rowHTML = `<tr>
+              <td>${row[0]}</td>
+              <td>${row[1]}</td>`;
+            indices.forEach((idx, i) => {
+              const cell = row[idx], hdr = state.tableHeaders[idx].toLowerCase().trim();
+              totals[i] += parseCur(cell);
+              let formatted;
+              if(cell === "" || cell === null || isNaN(parseFloat(cell))) {
+                formatted = "-";
+              } else if (currencyColumns.includes(hdr)) {
+                formatted = fmtCur(parseCur(cell));
+              } else if (hdr.includes("total effort days")) {
+                formatted = parseCur(cell).toString();
+              } else if (hdr.endsWith("%") || ((hdr.includes("effort") && !hdr.includes("total effort days")) || hdr.includes("cost %"))) {
+                formatted = parseFloat(cell).toFixed(2) + "%";
+              } else if (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs")) {
+                formatted = fmtCur(parseCur(cell));
+              } else {
+                formatted = cell;
+              }
+              rowHTML += `<td data-col="${idx}" data-intake-id="${row[0]}">${formatted}</td>`;
+            });
+            rowHTML += `<td><button class="editBtn" data-intake-id="${row[0]}">Edit</button></td>`;
+            rowHTML += "</tr>";
+            tableHTML += rowHTML;
+          });
+          let totalRow = `<tr><td colspan="2"><strong>Total</strong></td>`;
+          indices.forEach((_, i) => {
+            const hdr = state.tableHeaders[indices[i]].toLowerCase().trim();
+            let fTot;
+            if (currencyColumns.includes(hdr)) {
+              fTot = fmtCur(totals[i]);
+            } else if (hdr.includes("cost") || hdr.endsWith("tc") || hdr.includes("total costs")) {
+              fTot = fmtCur(totals[i]);
+            } else if (hdr.includes("total effort days")) {
+              fTot = totals[i].toLocaleString();
+            } else if (hdr.endsWith("%") || ((hdr.includes("effort") && !hdr.includes("total effort days")) || hdr.includes("cost %"))) {
+              fTot = totals[i].toFixed(2) + "%";
+            } else {
+              fTot = totals[i].toLocaleString();
+            }
+            totalRow += `<td><strong>${fTot}</strong></td>`;
+          });
+          totalRow += `<td></td>`;
+          tableHTML += totalRow + "</tbody></table>";
+          let trackerHTML = "";
+          if (title === "Metrics") {
+            const etIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "et");
+            const otherIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "other lines of business");
+            let grandTotal = 0;
+            state.metricsRows.forEach(row => {
+              const id = normalizeID(row[0]);
+              const dt = state.jrmDateMapping[id];
+              if (!inRange(dt, start, end)) return;
+              grandTotal += parseCur(row[etIdx]) + parseCur(row[otherIdx]);
+            });
+            trackerHTML = `<h3>Total</h3>
+              <table class="modern-table">
+                <tr><th>Metric</th><th>Total</th></tr>
+                <tr><td>Grand Total</td><td>${fmtCur(grandTotal)}</td></tr>
+              </table>`;
+          } else if (isET) {
+            const etIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "et");
+            const otherIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "other lines of business");
+            let grandTotal = 0;
+            state.metricsRows.forEach(row => {
+              const id = normalizeID(row[0]);
+              const dt = state.jrmDateMapping[id];
+              if (!inRange(dt, start, end)) return;
+              grandTotal += parseCur(row[etIdx]) + parseCur(row[otherIdx]);
+            });
+            trackerHTML = `<h3>Total</h3>
+              <table class="modern-table">
+                <tr><th>Metric</th><th>Total</th></tr>
+                <tr><td>Grand Total</td><td>${fmtCur(grandTotal)}</td></tr>
+              </table>`;
+          } else {
+            const totObj = { totalEffortDays: 0, tc: 0, ePerc: 0, cPerc: 0 };
+            indices.forEach((idx, i) => {
+              const hdr = state.tableHeaders[idx].toLowerCase().trim();
+              let val = totals[i];
+              if (hdr.includes("total effort days")) totObj.totalEffortDays += val;
+              else if (hdr.includes("tc") || hdr.includes("total costs") || isET) totObj.tc += val;
+              if (hdr.endsWith("e%")) totObj.ePerc += val < 1 ? val * 100 : val;
+              else if (hdr.endsWith("c%")) totObj.cPerc += val < 1 ? val * 100 : val;
+            });
+            trackerHTML = `<h3>Total</h3>
+              <table class="modern-table">
+                <tr><th>Metric</th><th>Total</th></tr>
+                <tr><td>Total Effort Days</td><td>${totObj.totalEffortDays.toLocaleString()}</td></tr>
+                <tr><td>Total Cost</td><td>${fmtCur(totObj.tc)}</td></tr>
+                <tr><td>Effort %</td><td>${totObj.ePerc.toFixed(2)}%</td></tr>
+                <tr><td>Cost %</td><td>${totObj.cPerc.toFixed(2)}%</td></tr>
+              </table>`;
+          }
+          container.innerHTML = `<div style="display:flex;gap:20px;">
+            <div style="flex:3;max-height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:10px;">${tableHTML}</div>
+            <div style="flex:1;max-height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:10px;">${trackerHTML}</div>
+          </div>`;
+          container.querySelectorAll(".editBtn").forEach(btn => {
+            btn.addEventListener("click", handleEditClick);
+          });
+        }
+        
+        // Inline editing event handlers
+        function handleEditClick(event) {
+          if (!requireAdmin()) return;
+          if (checkCooldown()) return;
+          const btn = event.target;
+          const tr = btn.closest("tr");
+          const intakeId = btn.getAttribute("data-intake-id");
+          const editableCells = tr.querySelectorAll("td[data-col]");
+          editableCells.forEach(cell => {
+            let currentText = cell.textContent;
+            let rawValue = currentText.replace(/[\$, %]/g, "").trim();
+            cell.innerHTML = `<input type="text" value="${rawValue}" style="width:100%;">`;
+          });
+          const actionCell = tr.querySelector("td:last-child");
+          actionCell.innerHTML = `<button class="saveBtn" data-intake-id="${intakeId}">Save</button>
+                                  <button class="cancelBtn" data-intake-id="${intakeId}">Cancel</button>`;
+          actionCell.querySelector(".saveBtn").addEventListener("click", handleSaveClick);
+          actionCell.querySelector(".cancelBtn").addEventListener("click", () => {
+            updateDisciplineTables();
+          });
+        }
+        
+        function handleSaveClick(event) {
+          if (!requireAdmin()) return;
+          if (checkCooldown()) return;
+          const btn = event.target;
+          const tr = btn.closest("tr");
+          const intakeId = btn.getAttribute("data-intake-id");
+          let updatedValues = {};
+          tr.querySelectorAll("td[data-col]").forEach(cell => {
+            const colIdx = cell.getAttribute("data-col");
+            const input = cell.querySelector("input");
+            if(input) {
+              updatedValues[colIdx] = input.value;
+            }
+          });
+          updateMetricsRowInExcel(intakeId, updatedValues).then(() => {
+            for(let i=0; i<state.metricsRows.length; i++){
+              if(state.metricsRows[i][0].toString().trim() === intakeId.toString().trim()){
+                for(let key in updatedValues) {
+                  state.metricsRows[i][parseInt(key)] = updatedValues[key];
+                }
+                break;
+              }
+            }
+            updateDisciplineTables();
+            startCooldown();
+          }).catch(err => {
+            alert("Failed to update Metrics row: " + err.message);
+            updateDisciplineTables();
+          });
+        }
+        
+        function updateDisciplineTables() {
+          const container = $("discipline-tables-container"),
+                start = $("startDateTotal").value,
+                end = $("endDateTotal").value;
+          if (!OTHER.some(d => $(d + "Checkbox")?.checked)) {
+            const defaultCols = ["ET", "Other Lines of Business", "Total Ongoing Costs", "LOB Sub-Total", "Contingency"];
+            const fixed = ["Intake ID", "Intake Name"];
+            const indices = [];
+            defaultCols.forEach(col => {
+              const idx = state.tableHeaders.findIndex(
+                h => h.trim().toLowerCase() === col.trim().toLowerCase()
+              );
+              if (idx > -1) {
+                fixed.push(state.tableHeaders[idx]);
+                indices.push(idx);
+              }
+            });
+            if (!indices.length) {
+              return container.innerHTML = "";
+            }
+            renderTable(container, fixed, indices, "Metrics", start, end);
+            return;
+          }
+          const checked = OTHER.filter(d => $(d + "Checkbox")?.checked),
+                fixed = ["Intake ID", "Intake Name"],
+                indices = [];
+          for (let i = 2; i < state.tableHeaders.length; i++) {
+            const hdr = state.tableHeaders[i].toLowerCase().trim();
+            if (checked.map(d => dp[d]).some(p => hdr.includes(p))) {
+              fixed.push(state.tableHeaders[i]);
+              indices.push(i);
+            }
+          }
+          if (!indices.length) {
+            return container.innerHTML = "";
+          }
+          renderTable(container, fixed, indices, `Metrics for ${checked.map(d => d.toUpperCase()).join(", ")}`, start, end);
+        }
+        
+        function updateMetricSelect() {
+          const sel = $("metric");
+          sel.innerHTML = "";
+          if (!OTHER.some(d => $(d + "Checkbox")?.checked)) {
+            const etIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "et"),
+                  contIdx = state.tableHeaders.findIndex(h => h.trim().toLowerCase() === "contingency"),
+                  defs = etIdx !== -1 && contIdx !== -1 && contIdx > etIdx
+                    ? state.tableHeaders.slice(etIdx, contIdx + 1)
+                    : ["ET", "Other Lines of Business", "LOB Sub-Total", "Contingency"];
+            defs.forEach(metric => sel.appendChild(createOption(metric, metric)));
+            sel.onchange = () => { updateChartAndTable(sel.value); updateDisciplineTables(); };
+            updateChartAndTable(defs[0]);
+            updateDisciplineTables();
+            return;
+          }
+          const selected = OTHER.filter(d => $(d + "Checkbox")?.checked)
+              .map(d => d === "aoto" ? "ao/to" : d),
+            opts = selected.length
+              ? state.metricOptions.filter(opt => selected.some(d => opt.toLowerCase().includes(d)))
+              : state.metricOptions.filter(opt => ["et", "other lines of business", "lob sub-total", "contingency"].includes(opt.trim().toLowerCase()));
+          opts.forEach(opt => sel.appendChild(createOption(opt, opt)));
+          sel.onchange = () => { updateChartAndTable(sel.value); updateDisciplineTables(); };
+          opts.length ? updateChartAndTable(opts[0]) : ($("chart-container").innerHTML = "");
+          updateDisciplineTables();
+        }
+        
+        function clearFilters() {
+          OTHER.forEach(d => { if ($(d + "Checkbox")) $(d + "Checkbox").checked = false; });
+          ["startDateTotal", "endDateTotal"].forEach(id => $(id).value = "");
+          updateMetricSelect();
+        }
+        
+        function updateChartAndTable(metric) {
+          $("chart-container").classList.remove("hidden");
+          const col = state.metricMapping[metric],
+                start = $("startDateTotal").value,
+                end = $("endDateTotal").value,
+                filtered = state.metricsRows.filter(row => {
+                  const id = normalizeID(row[0]), dt = state.jrmDateMapping[id];
+                  return (!start && !end) || (dt && inRange(dt, start, end));
+                });
+          if (!filtered.length) {
+            $("chart-container").innerHTML = "<p>No data available for selected date range.</p>";
+            return;
+          }
+          const top5 = filtered
+            .map(row => ({
+              name: "ENT-" + normalizeID(row[0]),
+              y: parseFloat(String(row[col]).replace(/[^\d.\-]/g, "")) || 0
+            }))
+            .sort((a, b) => b.y - a.y)
+            .slice(0, 5),
+            isPercent = metric.includes("%"),
+            isPlain = metric.includes("Total Effort Days"),
+            isCurrency = !isPercent && !isPlain,
+            dlFormat = isPercent ? "{point.name}: {point.y:.0f}%" : isCurrency ? "{point.name}: ${point.y:,.0f}" : "{point.name}: {point.y:,.0f}",
+            ttFormat = isPercent
+              ? "<b>{point.name}</b><br/>Value: <b>{point.y:.2f}%</b> ({point.percentage:.1f}%)"
+              : isCurrency
+              ? "<b>{point.name}</b><br/>Value: <b>${point.y:,.2f}</b> ({point.percentage:.1f}%)"
+              : "<b>{point.name}</b><br/>Value: <b>{point.y:,.2f}</b> ({point.percentage:.1f}%)";
+          Highcharts.chart("chart-container", {
+            chart: { type: "pie" },
+            title: { text: "Top 5 Intakes by " + metric },
+            series: [{ name: "Value", data: top5, dataLabels: { format: dlFormat } }],
+            tooltip: { headerFormat: "", pointFormat: ttFormat },
+            plotOptions: { pie: { allowPointSelect: true, cursor: "pointer", showInLegend: true } }
+          });
+        }
+        
+        function exportAll() {
+          state.jrmRows.forEach(row => {
+            let normId = normalizeID(row[0]);
+            let card = document.getElementById("card-ENT-" + normId);
+            if (card) {
+              row[4] = card.getAttribute("data-status");
+            }
+          });
+          const wb = XLSX.utils.book_new(),
+                start = $("startDate").value,
+                end = $("endDate").value,
+                filteredJRMRows = state.jrmRows.filter(row => {
+                  let date = row[6];
+                  if (date instanceof Date) date = date.toISOString().slice(0, 10);
+                  return (!start || date >= start) && (!end || date <= end);
+                });
+          const jrmData = state.jrmHeader && filteredJRMRows ? [state.jrmHeader, ...filteredJRMRows] : [];
+          const wsJRM = XLSX.utils.aoa_to_sheet(jrmData);
+          XLSX.utils.book_append_sheet(wb, wsJRM, "JRM");
+          const tables = $("discipline-tables-container")?.getElementsByTagName("table") || [];
+          if (tables.length >= 2) {
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(tables[0]), "Metrics");
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(tables[1]), "Total");
+          } else {
+            alert("Metrics tables not found. Metrics and Total sheets will be empty.");
+            const wsEmpty = XLSX.utils.aoa_to_sheet([]);
+            XLSX.utils.book_append_sheet(wb, wsEmpty, "Metrics");
+            XLSX.utils.book_append_sheet(wb, wsEmpty, "Total");
+          }
+          XLSX.writeFile(wb, "Export.xlsx");
+        }
+        
+        function filterCards() {
+          const input = $("searchInput").value.toLowerCase(),
+                start = $("startDate").value,
+                end = $("endDate").value,
+                status = $("statusDropdown").value,
+                cards = Array.from(document.getElementsByClassName("jrm-card"));
+          let count = 0;
+          cards.forEach(card => {
+            const id = card.getAttribute("data-intake-id").toLowerCase(),
+                  name = card.getAttribute("data-intake-name").toLowerCase(),
+                  tags = card.getAttribute("data-intake-tags").toLowerCase(),
+                  searchOk = id.includes(input) || name.includes(input) || tags.includes(input),
+                  cardDate = card.getAttribute("data-intake-date"),
+                  closed = card.getAttribute("data-closed"),
+                  cardStatus = card.getAttribute("data-status"),
+                  dateOk = (!start || cardDate >= start) && (!end || cardDate <= end);
+            if (status === "ofs") {
+              card.style.display = cardStatus === "ofs" && searchOk && dateOk ? "" : "none";
+              if (card.style.display === "") count++;
+            } else {
+              if (cardStatus === "ofs") card.style.display = "none";
+              else card.style.display = (status === "all" || (status === "closed" && closed === "true")) && searchOk && dateOk ? "" : "none", card.style.display === "" && count++;
+            }
+          });
+          $("non-ofs-container").style.display = status === "ofs" ? "none" : "block";
+          $("ofs-wrapper").style.display = status === "ofs" ? "block" : "none";
+          $("counter").innerText = "Intakes Count: " + count;
+        }
+        
+        function showData(id) {
+          $("total-content").classList.add("hidden");
+          $("jrm-content").classList.add("hidden");
+          $("intake-charts").classList.remove("hidden");
+          let hdr = $("chart-header") || document.createElement("h2");
+          if (!hdr.id) { hdr.id = "chart-header"; $("intake-charts").prepend(hdr); }
+          hdr.textContent = "Intake ID: ENT-" + id;
+          document.querySelectorAll("#intake-charts .data").forEach(div => div.style.display = "none");
+          const target = $("data-" + id);
+          if (target) {
+            target.style.display = "block";
+            setTimeout(() => window.dispatchEvent(new Event("resize")), 100);
+          } else alert(`No chart data available for intake ENT-${id}`);
+        }
+        
+        function showSection(showId) {
+          ["total-content", "jrm-content", "intake-charts"].forEach(id =>
+            $(id).classList.toggle("hidden", id !== showId)
+          );
+        }
+        
+        function fetchData() {
+          const getUrl = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${CONFIG.path}?ref=${CONFIG.branch}`;
+          fetch(getUrl, {
+            headers: {
+              Authorization: `token ${CONFIG.token}`,
+              Accept: "application/vnd.github+json"
+            }
+          })
+          .then(response => response.json())
+          .then(fileData => {
+            const base64Content = fileData.content.replace(/\n/g, "");
+            const binaryString = atob(base64Content);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+            const wb = XLSX.read(bytes.buffer, { type: "array", cellDates: true });
+            processJRM(wb.Sheets["JRM"]);
+            processMetrics(wb.Sheets["Metrics"]);
+          })
+          .catch(e => {
+            console.error("Error loading updated Excel file:", e);
+          });
+        }
+        
+        function processMetrics(sheet) {
+          const raw = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+          state.rawMetrics = raw;
+          if (!raw || raw.length < 2) return console.error("Metrics sheet has no data.");
+          let incl = [];
+          raw[0].forEach((hdr, col) => {
+            if (hdr !== "Intake Name") {
+              incl.push(col);
+              state.tableHeaders.push(hdr);
+            }
+          });
+          state.metricsRows = raw.slice(1).map(row =>
+            incl.map(idx => row[idx] instanceof Date ? row[idx].toLocaleDateString("en-US") : row[idx] || "")
+          );
+          state.metricsIDs = new Set(state.metricsRows.map(r => normalizeID(r[0])));
+          state.tableHeaders.splice(1, 0, "Intake Name");
+          state.metricsRows.forEach(row => {
+            const id = normalizeID(row[0]);
+            row.splice(1, 0, state.jrmNameMapping[id] || "");
+          });
+          state.tableHeaders.forEach((hdr, i) => {
+            if (!["Intake ID", "Intake Name"].includes(hdr)) {
+              state.metricOptions.push(hdr);
+              state.metricMapping[hdr] = i;
+            }
+          });
+          $("total-content").innerHTML = `
+            <div class="container">
+              <div class="summary">
+                <div>Total Approved Intakes: <strong>${state.metricsRows.length}</strong></div>
+              </div>
+              <div class="filters-container">
+                <div class="filter-row" id="total-filters">
+                  <div id="checkboxes">
+                    ${OTHER.map(d => `<label><input type="checkbox" id="${d}Checkbox"> ${d.toUpperCase()}</label>`).join("")}
+                  </div>
+                  <label for="metric">Select Metric:</label>
+                  <select id="metric"></select>
+                  <label for="startDateTotal">Start Date:</label>
+                  <input type="date" id="startDateTotal">
+                  <label for="endDateTotal">End Date:</label>
+                  <input type="date" id="endDateTotal">
+                  <button id="clearTotal">Clear</button>
+                </div>
+              </div>
+              <div id="discipline-tables-container" class="table-wrapper"></div>
+              <div id="chart-container"></div>
+            </div>`;
+          generateIntakeCards(state.rawMetrics);
+          initCharts(state.rawMetrics);
+          OTHER.forEach(d => $(d + "Checkbox").addEventListener("change", updateMetricSelect));
+          ["startDateTotal", "endDateTotal"].forEach(id => $(id).addEventListener("change", () => {
+            updateChartAndTable($("metric").value);
+            updateDisciplineTables();
+          }));
+          $("clearTotal").addEventListener("click", clearFilters);
+          updateMetricSelect();
+        }
+        
+        function processJRM(sheet) {
+          const raw = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+          if (!raw || raw.length < 2) return console.error("JRM sheet has no data.");
+          state.jrmHeader = raw[0];
+          state.jrmRows = raw.slice(1);
+          let html = `<div class="container">
+            <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
+              <input type="text" id="searchInput" placeholder="Search by Intake ID, Name or Tags">
+              <input type="date" id="startDate">
+              <input type="date" id="endDate">
+              <select id="statusDropdown">
+                <option value="all">Show All</option>
+                <option value="closed">Closed</option>
+                <option value="ofs">Out of Scope</option>
+              </select>
+              <button id="addButton">Add</button>
+              <button id="clearButton">Clear</button>
+              <span id="counter">Intakes Count: 0</span>
+            </div>
+            <div id="addFormContainer" style="display:none;">
+              <h3>Add New Intake</h3>
+              <form id="addIntakeForm">
+                <label>Intake ID: <input type="text" name="intakeId" required></label>
+                <label>Intake Name: <input type="text" name="intakeName" required></label>
+                <label>Intake Comments: <input type="text" name="intakeComments"></label>
+                <label>Intake Tags: <input type="text" name="intakeTags"></label>
+                <label>Date: <input type="date" name="intakeDate" required></label>
+                <button type="submit">Submit</button>
+                <button type="button" id="cancelAdd">Cancel</button>
+              </form>
+            </div>`;
+          let cards = { jrm: [], estimates: [], approved: [], ofs: [] };
+          state.jrmRows.forEach((row, idx) => {
+            let [id = "", name = "", comments = "", tags = "", rawStatus = "", attach = "", date] = row;
+            date = convertExcelDate(date);
+            let status = String(rawStatus).toLowerCase(),
+                dispDate = date instanceof Date ? date.toLocaleDateString("en-US") : date,
+                isoDate = date instanceof Date ? date.toISOString().slice(0, 10) : date,
+                closed = status === "approved" && String(attach).trim() !== "",
+                normId = normalizeID(id);
+            state.jrmNameMapping[normId] = name;
+            state.jrmDateMapping[normId] = isoDate;
+            const viewLink = status === "approved" ? `<div style="position:absolute;bottom:10px;right:10px;"><a href="javascript:void(0)" data-intake-id="${normId}" class="view-link">View</a></div>` : "";
+            const card = `<div id="card-ENT-${normId}" class="jrm-card" data-intake-id="${id}" data-intake-name="${name}" data-intake-tags="${tags}" data-intake-date="${isoDate}" data-status="${status}" data-closed="${closed}">
+                <h3><a href="https://jira.cibcatl.com/browse/ENT-${normId}" target="_blank">ENT-${normId} - ${name}</a></h3>
+                <p><strong>Date:</strong> ${dispDate}</p>
+                <p><strong>Comments:</strong> ${comments}</p>
+                <p><strong>Tags:</strong> ${tags}</p>
+                ${status === "approved" && String(attach).trim() ? `<div class="attachment"><a href="${attach}" target="_blank">PDF</a></div>` : ""}
+                ${viewLink}
+              </div>`;
+            if (status === "jrm") cards.jrm.push(card);
+            else if (status === "estimates") cards.estimates.push(card);
+            else if (status === "approved") cards.approved.push(card);
+            else if (status === "ofs") cards.ofs.push(card);
+          });
+          html += `<div id="non-ofs-container" class="cards-container">
+              <div class="row">
+                <div class="col" id="jrm-col"><h2>JRM</h2>${cards.jrm.join("")}</div>
+                <div class="col" id="estimates-col"><h2>Estimates</h2>${cards.estimates.join("")}</div>
+                <div class="col" id="approved-col"><h2>Approved</h2>${cards.approved.join("")}</div>
+              </div>
+            </div>
+            <div id="ofs-wrapper" style="display:none;">
+              <h2>Out of Scope</h2>
+              <div id="ofs-container">${cards.ofs.join("")}</div>
+            </div>
+          </div>`;
+          $("jrm-content").innerHTML = html;
+          on("#searchInput, #startDate, #endDate, #statusDropdown", "input", filterCards);
+          $("clearButton").addEventListener("click", () => {
+            $("searchInput").value = "";
+            $("startDate").value = "";
+            $("endDate").value = "";
+            $("statusDropdown").value = "all";
+            filterCards();
+          });
+          $("jrm-content").addEventListener("click", e => {
+            if (e.target.classList.contains("view-link"))
+              showData(e.target.getAttribute("data-intake-id"));
+          });
+          $("addButton").addEventListener("click", () => {
+            if (!requireAdmin()) return;
+            const formContainer = $("addFormContainer");
+            formContainer.style.display = formContainer.style.display === "none" ? "block" : "none";
+          });
+          $("cancelAdd").addEventListener("click", () => {
+            $("addFormContainer").style.display = "none";
+          });
+          $("addIntakeForm").addEventListener("submit", function(e) {
+            e.preventDefault();
+            if (!requireAdmin()) return;
+            if (checkCooldown()) return;
+            const formData = new FormData(this);
+            const newIntake = {
+              intakeId: formData.get("intakeId").trim(),
+              intakeName: formData.get("intakeName").trim(),
+              intakeComments: formData.get("intakeComments").trim(),
+              intakeTags: formData.get("intakeTags").trim(),
+              intakeDate: formData.get("intakeDate")
+            };
+            let duplicate = state.jrmRows.some(row => {
+              let existingId = normalizeID(row[0]);
+              let newId = normalizeID(newIntake.intakeId);
+              return existingId === newId;
+            });
+            if (duplicate) {
+              alert("Intake ID already exists. Please use a unique Intake ID.");
+              return;
+            }
+            const newRow = [
+              newIntake.intakeId,
+              newIntake.intakeName,
+              newIntake.intakeComments,
+              newIntake.intakeTags,
+              "jrm",
+              "",
+              newIntake.intakeDate
+            ];
+            state.jrmRows.unshift(newRow);
+            let normId = normalizeID(newIntake.intakeId);
+            state.jrmNameMapping[normId] = newIntake.intakeName;
+            state.jrmDateMapping[normId] = newIntake.intakeDate;
+            const dispDate = new Date(newIntake.intakeDate).toLocaleDateString("en-US");
+            const newCardHtml = `<div id="card-ENT-${normId}" class="jrm-card" data-intake-id="${newIntake.intakeId}" data-intake-name="${newIntake.intakeName}" data-intake-tags="${newIntake.intakeTags}" data-intake-date="${newIntake.intakeDate}" data-status="jrm" data-closed="false">
+              <h3><a href="https://jira.cibcatl.com/browse/ENT-${normId}" target="_blank">ENT-${normId} - ${newIntake.intakeName}</a></h3>
+              <p><strong>Date:</strong> ${dispDate}</p>
+              <p><strong>Comments:</strong> ${newIntake.intakeComments}</p>
+              <p><strong>Tags:</strong> ${newIntake.intakeTags}</p>
+            </div>`;
+            const jrmCol = document.getElementById("jrm-col");
+            const header = jrmCol.querySelector("h2");
+            if(header){
+              header.insertAdjacentHTML("afterend", newCardHtml);
+            } else {
+              jrmCol.insertAdjacentHTML("afterbegin", newCardHtml);
+            }
+            filterCards();
+            this.reset();
+            $("addFormContainer").style.display = "none";
+            addNewIntakeToExcel(newIntake).catch(err => {
+              alert("Failed to add new intake to Excel: " + err.message);
+            });
+            startCooldown();
+          });
+          filterCards();
+        }
+        
+        function generateIntakeCards(data) {
+          $("intake-charts").innerHTML = data.slice(1).reduce((html, row) => {
+            const id = normalizeID(row[0]);
+            return html + `
+              <div id="data-${id}" class="data" style="display:none;border:1px solid #ddd;margin-bottom:20px;padding:10px;">
+                <div style="border:1px solid #ddd;margin:10px;padding:10px;">
+                  <h3>ET One Time Estimates Breakdown</h3>
+                  <div class="charts-row">
+                    ${[1,2,3,4].map(i => `<div id="chart${i}-${id}" class="chart-container"></div>`).join("")}
+                  </div>
+                </div>
+                <div style="border:1px solid #ddd;margin:10px;padding:10px;">
+                  <h3>LOB Sub-Total & Contingency and ET & Other Lines of Business</h3>
+                  <div class="charts-row">
+                    ${[5,6].map(i => `<div id="chart${i}-${id}" class="chart-container"></div>`).join("")}
+                  </div>
+                </div>
+              </div>`;
+          }, "");
+        }
+        
+        function initCharts(data) {
+          const header = data[0], last = header.length,
+                contIdx = header.findIndex(h => h.trim().toLowerCase() === "contingency"),
+                startIdx = contIdx + 1;
+          data.slice(1).forEach(row => {
+            const id = normalizeID(row[0]),
+                  etLabels = [], etTFD = [], etTC = [], etEff = [], etCost = [];
+            for (let col = startIdx; col < last; col += 4) {
+              etLabels.push((header[col] || "").replace(" Total Effort Days", ""));
+              etTFD.push(row[col] || 0);
+              etTC.push(row[col + 1] || 0);
+              etEff.push(row[col + 2] || 0);
+              etCost.push(row[col + 3] || 0);
+            }
+            const color = i => ["#4a90e2", "#a0c4ff", "#90b0d8", "#7a9cc6", "#6588b4"][(i - 1) % 5];
+            generateChart(`chart1-${id}`, etLabels, etTFD, "Total Effort Days", etLabels.map((_,i) => color(i+1)));
+            generateChart(`chart2-${id}`, etLabels, etTC, "Total Costs", etLabels.map((_,i) => color(i+1)));
+            generateChart(`chart3-${id}`, etLabels, etEff, "Effort %", etLabels.map((_,i) => color(i+1)));
+            generateChart(`chart4-${id}`, etLabels, etCost, "Cost %", etLabels.map((_,i) => color(i+1)));
+  
+            const lob = Number(row[header.findIndex(h => h.trim().toLowerCase() === "lob sub-total")] || 0),
+                  cont = Number(row[contIdx] || 0),
+                  data5 = [lob, cont, lob + cont],
+                  labels5 = ["LOB Sub-Total", "Contingency", "Total"],
+                  etVal = Number(row[header.findIndex(h => h.trim().toLowerCase() === "et")] || 0),
+                  other = Number(row[header.findIndex(h => h.trim().toLowerCase() === "other lines of business")] || 0),
+                  data6 = [etVal, other, etVal + other],
+                  labels6 = ["ET", "Other Lines", "Total"];
+            generateChart(`chart5-${id}`, labels5, data5, "LOB Sub-Total & Contingency", ["#4a90e2", "#a0c4ff", "#7a9cc6"]);
+            generateChart(`chart6-${id}`, labels6, data6, "ET & Other Lines", ["#4a90e2", "#a0c4ff", "#7a9cc6"]);
+          });
+        }
+        
+        function generateChart(id, labels, data, title, colors) {
+          Highcharts.chart(id, {
+            chart: { type: "column" },
+            title: { text: title },
+            xAxis: { categories: labels },
+            yAxis: { min: 0, title: { text: "Value" } },
+            plotOptions: { column: { stacking: "normal" } },
+            series: [{
+              name: title,
+              data: labels.map((_, i) => ({ y: parseFloat(data[i]) || 0, color: colors[i] }))
+            }]
+          });
+        }
+        
+        function showSection(showId) {
+          ["total-content", "jrm-content", "intake-charts"].forEach(id =>
+            $(id).classList.toggle("hidden", id !== showId)
+          );
+        }
+        
+        function init() {
+          $("totalBtn").addEventListener("click", () => showSection("total-content"));
+          $("jrmBtn").addEventListener("click", () => showSection("jrm-content"));
+          $("definitionBtn").addEventListener("click", () => window.open("https://cibc-my.sharepoint.com/:p:/p/peter_crescenzi/EfCWJ1Wz92JNvCgEewJyQv4BJVVJKxSRmWz6IwjROaDNNA?e=CND6ej", "_blank"));
+          $("exportAllBtn").addEventListener("click", exportAll);
+          fetchData();
+          showSection("jrm-content");
+          
+          // Admin login event listener
+          $("adminGo").addEventListener("click", function() {
+            const pwd = $("adminPassword").value;
+            if(pwd === "admin") {
+              isAdmin = true;
+              $("adminUser").textContent = "User: Admin";
+              $("adminPassword").disabled = true;
+              this.disabled = true;
+            } else {
+              alert("No access");
+            }
+          });
+        }
+        
+        document.addEventListener("DOMContentLoaded", init);
+      })();
+    </script>
+  </body>
+</html>
