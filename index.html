@@ -210,7 +210,7 @@
     <!-- Custom Context Menu Element -->
     <div id="contextMenu"><ul></ul></div>
     
-    <!-- Admin Login Box (smaller and positioned at bottom left) -->
+    <!-- Admin Login Box -->
     <div id="adminLogin">
       <input type="password" id="adminPassword" placeholder="Password">
       <button id="adminGo">Go</button>
@@ -280,7 +280,7 @@
           return false;
         }
         // ---------------------------------------------------------------------
-
+        
         // ----- Helper: Convert Excel Serial Date to JavaScript Date -----
         function convertExcelDate(excelDate) {
           if (typeof excelDate === "number") {
@@ -564,7 +564,6 @@
           startCooldown();
         }
         
-        // New function to add a new row to the Metrics sheet
         async function addNewMetricsToExcel(newRow, retries = 3) {
           if (checkCooldown()) return;
           try {
@@ -676,8 +675,10 @@
               if (!requireAdmin()) return;
               if (checkCooldown()) return;
               const intakeId = card.getAttribute('data-intake-id');
-              deleteCardFromExcel(intakeId);
-              card.remove();
+              if(confirm("Are you sure you want to delete this row? This action cannot be undone.")){
+                deleteCardFromExcel(intakeId);
+                card.remove();
+              }
               hideContextMenu();
             });
             ul.appendChild(deleteOption);
@@ -727,14 +728,7 @@
             }
           });
           updateMetricsRowInExcel(intakeId, updatedValues).then(() => {
-            for(let i=0; i<state.metricsRows.length; i++){
-              if(state.metricsRows[i][0].toString().trim() === intakeId.toString().trim()){
-                for(let key in updatedValues) {
-                  state.metricsRows[i][parseInt(key)] = updatedValues[key];
-                }
-                break;
-              }
-            }
+            // Update local state as needed
             updateDisciplineTables();
             startCooldown();
           }).catch(err => {
@@ -1109,7 +1103,7 @@
             // Check if the Intake ID exists in the JRM sheet
             let jrmExists = state.jrmRows.some(row => normalizeID(row[0]) === normalizeID(newMetrics.intakeId));
             if (!jrmExists) {
-              alert("id is not present");
+              alert("ID is not present");
               return;
             }
             // Check if the Intake ID is already present in the Metrics table
@@ -1347,13 +1341,41 @@
             generateChart(`chart2-${id}`, etLabels, etTC, "Total Costs", etLabels.map((_,i) => color(i+1)));
             generateChart(`chart3-${id}`, etLabels, etEff, "Effort %", etLabels.map((_,i) => color(i+1)));
             generateChart(`chart4-${id}`, etLabels, etCost, "Cost %", etLabels.map((_,i) => color(i+1)));
-  
-            const lob = Number(row[...]); // (rest of the chart generation code)
           });
         }
         
-        // Additional helper functions (normalizeID, inRange, createOption, etc.) would be here
+        // Additional helper functions
+        const OTHER = ["ba", "qa", "aoto", "pmo", "dev"],
+              dp = { et: "et", ba: "et-ba", qa: "et-qa", aoto: "ao/to", pmo: "pmo", dev: "et-dev" },
+              state = {
+                jrmHeader: null,
+                jrmDateMapping: {},
+                jrmNameMapping: {},
+                jrmRows: [],
+                metricsRows: [],
+                tableHeaders: [],
+                metricOptions: [],
+                metricMapping: {},
+                metricsIDs: new Set(),
+                rawMetrics: []
+              };
+        const $ = id => document.getElementById(id);
+        const on = (sel, evt, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(evt, fn));
+        const fmtCur = num => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(num);
+        const parseCur = val => typeof val === "string" ? parseFloat(val.replace(/[^0-9.-]+/g, "")) || 0 : Number(val) || 0;
+        const normalizeID = id => {
+          id = String(id || "").trim();
+          return id.toUpperCase().startsWith("ENT-") ? id.slice(4) : id;
+        };
+        const inRange = (dt, s, e) => (!s || dt >= s) && (!e || dt <= e);
+        const createOption = (val, text) => { 
+          const o = document.createElement("option"); 
+          o.value = val; o.textContent = text; 
+          return o; 
+        };
         
+        // Initial fetch
+        fetchData();
       })();
     </script>
   </body>
