@@ -1528,7 +1528,35 @@
           });
         }
         
-        fetchData();
+        function showSection(showId) {
+          ["total-content", "jrm-content", "intake-charts"].forEach(id =>
+            $(id).classList.toggle("hidden", id !== showId)
+          );
+        }
+        
+        function init() {
+          $("totalBtn").addEventListener("click", () => showSection("total-content"));
+          $("jrmBtn").addEventListener("click", () => showSection("jrm-content"));
+          $("definitionBtn").addEventListener("click", () => window.open("https://cibc-my.sharepoint.com/:p:/p/peter_crescenzi/EfCWJ1Wz92JNvCgEewJyQv4BJVVJKxSRmWz6IwjROaDNNA?e=CND6ej", "_blank"));
+          $("exportAllBtn").addEventListener("click", exportAll);
+          fetchData();
+          showSection("jrm-content");
+          
+          // Admin login event listener
+          $("adminGo").addEventListener("click", function() {
+            const pwd = $("adminPassword").value;
+            if(pwd === "admin") {
+              isAdmin = true;
+              $("adminUser").textContent = "User: Admin";
+              $("adminPassword").disabled = true;
+              this.disabled = true;
+            } else {
+              alert("No access");
+            }
+          });
+        }
+        
+        document.addEventListener("DOMContentLoaded", init);
       })();
     </script>
   </body>
