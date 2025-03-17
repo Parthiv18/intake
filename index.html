@@ -1154,31 +1154,31 @@
                 <h3>Add Metrics Data</h3>
                 <form id="addEstimateForm">
                   <label>Intake ID: <input type="text" name="intakeId" required></label>
-                  <label>ET: <input type="text" name="et" required></label>
-                  <label>Other Lines of Business: <input type="text" name="other" required></label>
-                  <label>Total Ongoing Costs: <input type="text" name="totalOngoingCosts" required></label>
-                  <label>LOB Sub-Total: <input type="text" name="lobSubTotal" required></label>
-                  <label>Contingency: <input type="text" name="contingency" required></label>
-                  <label>ET-BA Total Effort Days: <input type="text" name="etBaEffortDays" required></label>
-                  <label>ET-BA TC: <input type="text" name="etBaTc" required></label>
-                  <label>ET-BA E%: <input type="text" name="etBaEpercent" required></label>
-                  <label>ET-BA C%: <input type="text" name="etBaCpercent" required></label>
-                  <label>ET-Dev Total Effort Days: <input type="text" name="etDevEffortDays" required></label>
-                  <label>ET-Dev TC: <input type="text" name="etDevTc" required></label>
-                  <label>ET-Dev E%: <input type="text" name="etDevEpercent" required></label>
-                  <label>ET-Dev C%: <input type="text" name="etDevCpercent" required></label>
-                  <label>ET-QA Total Effort Days: <input type="text" name="etQaEffortDays" required></label>
-                  <label>ET-QA TC: <input type="text" name="etQaTc" required></label>
-                  <label>ET-QA E%: <input type="text" name="etQaEpercent" required></label>
-                  <label>ET-QA C%: <input type="text" name="etQaCpercent" required></label>
-                  <label>AO/TO Total Effort Days: <input type="text" name="aoToEffortDays" required></label>
-                  <label>AO/TO TC: <input type="text" name="aoToTc" required></label>
-                  <label>AO/TO E%: <input type="text" name="aoToEpercent" required></label>
-                  <label>AO/TO C%: <input type="text" name="aoToCpercent" required></label>
-                  <label>PMO Total Effort Days: <input type="text" name="pmoEffortDays" required></label>
-                  <label>PMO TC: <input type="text" name="pmoTc" required></label>
-                  <label>PMO E%: <input type="text" name="pmoEpercent" required></label>
-                  <label>PMO C%: <input type="text" name="pmoCpercent" required></label>
+                  <label>ET: <input type="text" name="et"></label>
+                  <label>Other Lines of Business: <input type="text" name="other"></label>
+                  <label>Total Ongoing Costs: <input type="text" name="totalOngoingCosts"></label>
+                  <label>LOB Sub-Total: <input type="text" name="lobSubTotal"></label>
+                  <label>Contingency: <input type="text" name="contingency"></label>
+                  <label>ET-BA Total Effort Days: <input type="text" name="etBaEffortDays"></label>
+                  <label>ET-BA TC: <input type="text" name="etBaTc"></label>
+                  <label>ET-BA E%: <input type="text" name="etBaEpercent"></label>
+                  <label>ET-BA C%: <input type="text" name="etBaCpercent"></label>
+                  <label>ET-Dev Total Effort Days: <input type="text" name="etDevEffortDays"></label>
+                  <label>ET-Dev TC: <input type="text" name="etDevTc"></label>
+                  <label>ET-Dev E%: <input type="text" name="etDevEpercent"></label>
+                  <label>ET-Dev C%: <input type="text" name="etDevCpercent"></label>
+                  <label>ET-QA Total Effort Days: <input type="text" name="etQaEffortDays"></label>
+                  <label>ET-QA TC: <input type="text" name="etQaTc"></label>
+                  <label>ET-QA E%: <input type="text" name="etQaEpercent"></label>
+                  <label>ET-QA C%: <input type="text" name="etQaCpercent"></label>
+                  <label>AO/TO Total Effort Days: <input type="text" name="aoToEffortDays"></label>
+                  <label>AO/TO TC: <input type="text" name="aoToTc"></label>
+                  <label>AO/TO E%: <input type="text" name="aoToEpercent"></label>
+                  <label>AO/TO C%: <input type="text" name="aoToCpercent"></label>
+                  <label>PMO Total Effort Days: <input type="text" name="pmoEffortDays"></label>
+                  <label>PMO TC: <input type="text" name="pmoTc"></label>
+                  <label>PMO E%: <input type="text" name="pmoEpercent"></label>
+                  <label>PMO C%: <input type="text" name="pmoCpercent"></label>
                   <button type="submit">Submit</button>
                   <button type="button" id="cancelEstimateAdd">Cancel</button>
                 </form>
@@ -1238,12 +1238,16 @@
               pmoEpercent: formData.get("pmoEpercent").trim(),
               pmoCpercent: formData.get("pmoCpercent").trim()
             };
-            // Check if Intake ID exists in JRM sheet
-            let intakeExists = state.jrmRows.some(row => {
-              return normalizeID(row[0]) === normalizeID(newMetrics.intakeId);
-            });
-            if (!intakeExists) {
+            // Check if the Intake ID exists in the JRM sheet
+            let jrmExists = state.jrmRows.some(row => normalizeID(row[0]) === normalizeID(newMetrics.intakeId));
+            if (!jrmExists) {
               alert("id is not present");
+              return;
+            }
+            // Check if the Intake ID is already present in the Metrics table
+            let metricsExists = state.metricsRows.some(row => normalizeID(row[0]) === normalizeID(newMetrics.intakeId));
+            if (metricsExists) {
+              alert("ID is already present");
               return;
             }
             const newRow = [
